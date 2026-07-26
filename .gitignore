@@ -1,0 +1,23 @@
+# Environment variables
+.env
+
+# Python virtual environment
+.venv/
+env/
+venv/
+ENV/
+
+# Python cache & compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Vector database & local storage
+pdf_db/
+
+# IDE / OS files
+.vscode/
+.idea/
+.DS_Store
