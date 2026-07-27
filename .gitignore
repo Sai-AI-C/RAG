@@ -14,8 +14,14 @@ __pycache__/
 *.pyd
 .pytest_cache/
 
+# Dataset
+PDF_Data/
+
 # Vector database & local storage
 pdf_db/
+chroma.sqlite3
+*.db
+*.sqlite3
 
 # IDE / OS files
 .vscode/
