@@ -16,9 +16,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama import ChatOllama
 
 
-# =====================================================
 # Load Environment Variables & Config
-# =====================================================
 
 load_dotenv()
 
@@ -33,79 +31,46 @@ else:
     print(f"Connecting to Ollama server at: {ollama_base_url}")
 
 
-# =====================================================
-# PDF Location
-# =====================================================
-
-PDF_PATH = "data/CD Notes All Units.pdf"
-DB_PATH = "pdf_db"
-
-# =====================================================
-# Embedding Model
-# =====================================================
-
+# Embedding Model & Vector Database
 print("\nLoading Embedding Model...")
-
 embedding_model = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-
-# =====================================================
-# Create / Load Chroma Database
-# =====================================================
+DB_PATH = "pdf_db/chromadb"
 
 if os.path.exists(DB_PATH):
-
-    print("\nLoading Existing Vector Database...")
-
+    print("\nLoading Existing Vector Database from:", DB_PATH)
     vector_store = Chroma(
         persist_directory=DB_PATH,
         embedding_function=embedding_model
     )
-
 else:
+    print("\nVector database not found. Building database from all documents in ./PDF_Data...")
+    from Load import load_all_documents
 
-    print(f"\nLoading PDF : {PDF_PATH}")
-    doc = fitz.open(PDF_PATH)
-    documents = []
+    documents = load_all_documents("./PDF_Data")
+    print(f"Loaded {len(documents)} document pages across all subfolders.")
 
-    for page_num, page in enumerate(doc):
-        text = page.get_text()
-        documents.append(
-            Document(
-                page_content=text,
-                metadata={
-                    "source": PDF_PATH,
-                    "page": page_num + 1
-                }
-            )
-        )
-
-    print(f"Loaded {len(documents)} Pages")
-
-    print("\nSplitting PDF...")
+    print("\nSplitting documents into chunks...")
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
     chunks = splitter.split_documents(documents)
-    print(f"Created {len(chunks)} Chunks")
+    print(f"Created {len(chunks)} Chunks.")
 
     print("\nCreating New Vector Database...")
-
     vector_store = Chroma.from_documents(
         documents=chunks,
         embedding=embedding_model,
         persist_directory=DB_PATH
     )
 
-print("Vector Database Ready")
+print("Vector Database Ready!")
 
 
-# =====================================================
 # Retriever
-# =====================================================
 
 retriever = vector_store.as_retriever(
     search_type="similarity",
@@ -121,9 +86,7 @@ def format_docs(docs):
     return "\n\n".join(formatted)
 
 
-# =====================================================
 # Prompt
-# =====================================================
 
 template = """
 You are an expert Computer Science Tutor.
@@ -144,9 +107,7 @@ Question:
 prompt = ChatPromptTemplate.from_template(template)
 
 
-# =====================================================
 # Ollama LLM Config
-# =====================================================
 
 ollama_kwargs = {
     "model": os.getenv("OLLAMA_MODEL", "llama3.2"),
@@ -167,9 +128,7 @@ if os.getenv("OLLAMA_FORCE_CPU", "false").lower() == "true":
 llm = ChatOllama(**ollama_kwargs)
 
 
-# =====================================================
 # Build RAG Chain
-# =====================================================
 
 rag_chain = (
     {
@@ -182,9 +141,7 @@ rag_chain = (
 )
 
 
-# =====================================================
 # Chat Loop
-# =====================================================
 
 if __name__ == "__main__":
     print("\n==============================")
@@ -203,4 +160,4 @@ if __name__ == "__main__":
         answer = rag_chain.invoke(question)
 
         print("\nAnswer:\n")
-        print(answer)
+        print(answer)
