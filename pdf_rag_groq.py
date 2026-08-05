@@ -40,55 +40,39 @@ embedding_model = HuggingFaceEmbeddings(
 
 
 # =====================================================
-PDF_PATH = "data/CD Notes All Units.pdf"
-DB_PATH = "pdf_db"
+# Load Vector Database / Fallback to Load.py
+# =====================================================
+DB_PATH = "pdf_db/chromadb"
 
 if os.path.exists(DB_PATH):
-
-    print("\nLoading Existing Vector Database...")
-
+    print("\nLoading Existing Vector Database from:", DB_PATH)
     vector_store = Chroma(
         persist_directory=DB_PATH,
         embedding_function=embedding_model
     )
-
 else:
+    print("\nVector database not found. Building database from all documents in ./PDF_Data...")
+    from Load import load_all_documents
+    
+    documents = load_all_documents("./PDF_Data")
+    print(f"Loaded {len(documents)} document pages across all subfolders.")
 
-    print(f"\nLoading PDF : {PDF_PATH}")
-    doc = fitz.open(PDF_PATH)
-    documents = []
-
-    for page_num, page in enumerate(doc):
-        text = page.get_text()
-        documents.append(
-            Document(
-                page_content=text,
-                metadata={
-                    "source": PDF_PATH,
-                    "page": page_num + 1
-                }
-            )
-        )
-
-    print(f"Loaded {len(documents)} Pages")
-
-    print("\nSplitting PDF...")
+    print("\nSplitting documents into chunks...")
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
     chunks = splitter.split_documents(documents)
-    print(f"Created {len(chunks)} Chunks")
+    print(f"Created {len(chunks)} Chunks.")
 
     print("\nCreating New Vector Database...")
-
     vector_store = Chroma.from_documents(
         documents=chunks,
         embedding=embedding_model,
         persist_directory=DB_PATH
     )
 
-print("Vector Database Ready")
+print("Vector Database Ready!")
 
 
 # =====================================================
