@@ -43,7 +43,8 @@ if os.path.exists(DB_PATH):
     print("\nLoading Existing Vector Database from:", DB_PATH)
     vector_store = Chroma(
         persist_directory=DB_PATH,
-        embedding_function=embedding_model
+        embedding_function=embedding_model,
+        collection_name="Document__C"
     )
 else:
     print("\nVector database not found. Building database from all documents in ./PDF_Data...")
@@ -64,7 +65,8 @@ else:
     vector_store = Chroma.from_documents(
         documents=chunks,
         embedding=embedding_model,
-        persist_directory=DB_PATH
+        persist_directory=DB_PATH,
+        collection_name="Document__C"
     )
 
 print("Vector Database Ready!")
@@ -89,13 +91,18 @@ def format_docs(docs):
 # Prompt
 
 template = """
-You are an expert Computer Science Tutor.
+You are an assistant for a B.Tech student's uploaded notes.
 
-Answer the question thoroughly using ONLY the facts and concepts described in the provided context.
-You may synthesize information across pages if relevant.
+Answer ONLY using the supplied context.
 
-If the answer is truly not present or cannot be inferred from the provided context at all, say:
-"I don't know based on the provided notes."
+Important rules:
+1. Use the uploaded notes as the primary source.
+2. Do not invent syllabus topics.
+3. If an abbreviation has multiple meanings, determine its meaning
+   from the supplied context.
+4. If the context does not contain enough information, say so.
+5. Do not use general knowledge to fill missing information.
+6. When possible, mention the source document and page number.
 
 Context:
 {context}
