@@ -27,3 +27,7 @@ chroma.sqlite3
 .vscode/
 .idea/
 .DS_Store
+
+# Temporary & Binaries
+cloudflared*.exe
+MOBILE_LINK.txt
