@@ -26,7 +26,7 @@ st.markdown("""
     .stApp { background-color: #0e1117; }
 
     /* Sidebar subject buttons */
-    div[data-testid="stSidebarContent"].stButton button {
+    div[data-testid="stSidebarContent"] .stButton button {
         text-align: left;
         border-radius: 8px;
         padding: 8px 12px;
@@ -34,7 +34,7 @@ st.markdown("""
         font-weight: 500;
         transition: background 0.2s;
     }
-    div[data-testid="stSidebarContent"].stButton button:hover {
+    div[data-testid="stSidebarContent"] .stButton button:hover {
         background-color: #4f46e5 !important;
         color: white !important;
         border-color: #4f46e5 !important;
