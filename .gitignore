@@ -22,7 +22,7 @@ pdf_db/
 chroma.sqlite3
 *.db
 *.sqlite3
-
+*.zip
 # IDE / OS files
 .vscode/
 .idea/

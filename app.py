@@ -8,9 +8,22 @@ import ollama
 from sentence_transformers import SentenceTransformer
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
+try:
+    from langchain_groq import ChatGroq
+except ImportError:
+    ChatGroq = None
 from dotenv import load_dotenv
 
 load_dotenv()
+
+def get_groq_api_key() -> str:
+    """Fetch Groq API key from Streamlit secrets or .env."""
+    try:
+        if "GROQ_API_KEY" in st.secrets:
+            return st.secrets["GROQ_API_KEY"]
+    except Exception:
+        pass
+    return os.getenv("GROQ_API_KEY", "").strip()
 
 # 1. PAGE CONFIGURATION & STYLING
 st.set_page_config(
@@ -26,7 +39,7 @@ st.markdown("""
     .stApp { background-color: #0e1117; }
 
     /* Sidebar subject buttons */
-    div[data-testid="stSidebarContent"] .stButton button {
+    div[data-testid="stSidebarContent"].stButton button {
         text-align: left;
         border-radius: 8px;
         padding: 8px 12px;
@@ -34,7 +47,7 @@ st.markdown("""
         font-weight: 500;
         transition: background 0.2s;
     }
-    div[data-testid="stSidebarContent"] .stButton button:hover {
+    div[data-testid="stSidebarContent"].stButton button:hover {
         background-color: #4f46e5 !important;
         color: white !important;
         border-color: #4f46e5 !important;
@@ -108,7 +121,7 @@ CHAT_SESSIONS_DIR="./chat_history_sessions"
 os.makedirs(CHAT_SESSIONS_DIR,exist_ok=True)
 
 # 2. SUBJECT METADATA & SAMPLE QUESTIONS
-SUBJECT_METADATA = {
+SUBJECT_METADATA={
     "AI":{"title":"Artificial Intelligence","category":"AI & Data Science","icon":"🤖","type":"Notes"},
     "AI-NLP Lab":{"title":"AI & NLP Lab","category":"AI & Data Science","icon":"🧪","type":"Lab"},
     "ML notes":{"title":"Machine Learning","category":"AI & Data Science","icon":"🧠","type":"Notes"},
@@ -230,7 +243,7 @@ def _session_path(session_id: str) -> str:
     return os.path.join(CHAT_SESSIONS_DIR, f"{session_id}.json")
 
 def get_all_sessions():
-    sessions = []
+    sessions=[]
     for fname in os.listdir(CHAT_SESSIONS_DIR):
         if fname.endswith(".json"):
             try:
@@ -238,39 +251,82 @@ def get_all_sessions():
                     sessions.append(json.load(f))
             except Exception:
                 pass
-    sessions.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+    sessions.sort(key=lambda x:x.get("timestamp",0),reverse=True)
     return sessions
 
 def load_session(session_id: str):
-    p = _session_path(session_id)
+    p=_session_path(session_id)
     if os.path.exists(p):
         try:
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p,"r",encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
     return None
 
-def save_session(session_id: str, title: str, messages: list, subject: str = "All Subjects"):
+def save_session(session_id: str,title: str,messages: list,subject: str="All Subjects"):
     if not messages:
         return
-    data = {
-        "session_id": session_id,
-        "title": title[:30] + ("..." if len(title) > 30 else ""),
-        "timestamp": time.time(),
-        "messages": messages,
-        "subject": subject,
+    data={
+        "session_id":session_id,
+        "title":title[:30]+("..." if len(title)>30 else ""),
+        "timestamp":time.time(),
+        "messages":messages,
+        "subject":subject,
     }
-    with open(_session_path(session_id), "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    with open(_session_path(session_id),"w",encoding="utf-8") as f:
+        json.dump(data,f,ensure_ascii=False,indent=2)
 
 
 def delete_session(session_id: str):
-    p = _session_path(session_id)
+    p=_session_path(session_id)
     if os.path.exists(p):
         os.remove(p)
 
 # 4. VECTOR STORE & MODELS
+def download_and_extract_db(download_url: str, target_dir: str) -> bool:
+    """Download vector database zip archive and extract it."""
+    import zipfile
+    import urllib.request
+    import re
+
+    zip_path = "temp_pdf_db.zip"
+    try:
+        # Handle Google Drive share links
+        if "drive.google.com" in download_url:
+            file_id_match = re.search(r"/d/([a-zA-Z0-9_-]+)", download_url) or re.search(r"id=([a-zA-Z0-9_-]+)", download_url)
+            if file_id_match:
+                file_id = file_id_match.group(1)
+                try:
+                    import gdown
+                    gdown.download(id=file_id, output=zip_path, quiet=False)
+                except Exception:
+                    direct_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+                    urllib.request.urlretrieve(direct_url, zip_path)
+            else:
+                urllib.request.urlretrieve(download_url, zip_path)
+        else:
+            urllib.request.urlretrieve(download_url, zip_path)
+
+        if not os.path.exists(zip_path) or os.path.getsize(zip_path) < 1000:
+            return False
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(".")
+
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+        return True
+    except Exception as e:
+        if os.path.exists(zip_path):
+            try:
+                os.remove(zip_path)
+            except Exception:
+                pass
+        st.error(f"❌ Error downloading database: {e}")
+        return False
+
+
 @st.cache_resource(show_spinner=False)
 def load_embedding_model():
     return SentenceTransformer("all-MiniLM-L6-v2")
@@ -279,22 +335,50 @@ def load_embedding_model():
 @st.cache_resource(show_spinner=False)
 def get_vector_store():
     persist_dir = "./pdf_db/chromadb"
-    if not os.path.exists(persist_dir):
-        st.error(f"Vector Database not found at '{persist_dir}'. Please run Load.py first.")
-        st.stop()
+    db_file = os.path.join(persist_dir, "chroma.sqlite3")
+
+    if not os.path.exists(db_file):
+        # Check if VECTOR_DB_URL is available in Streamlit Secrets or Environment
+        download_url = None
+        try:
+            if "VECTOR_DB_URL" in st.secrets:
+                download_url = st.secrets["VECTOR_DB_URL"]
+        except Exception:
+            pass
+        if not download_url:
+            download_url = os.getenv("VECTOR_DB_URL", "").strip()
+
+        if download_url:
+            with st.spinner("📦 Downloading knowledge base for cloud setup (~15-30s)... Please wait."):
+                success = download_and_extract_db(download_url, persist_dir)
+                if not success or not os.path.exists(db_file):
+                    st.error("Vector database extraction failed. Please check the VECTOR_DB_URL in Streamlit secrets.")
+                    st.stop()
+        else:
+            st.error(
+                "⚠️ **Vector Database not found at `./pdf_db/chromadb`!**\n\n"
+                "**For Streamlit Cloud Deployment:**\n"
+                "1. Run `python create_db_zip.py` on your laptop to create `pdf_db.zip`.\n"
+                "2. Upload `pdf_db.zip` to Google Drive or GitHub Releases and get the share link.\n"
+                "3. In Streamlit Cloud dashboard ➡️ **Settings (⚙️) ➡️ Secrets**, add:\n"
+                "```toml\nVECTOR_DB_URL = \"https://drive.google.com/file/d/YOUR_FILE_ID/view?usp=sharing\"\n```\n"
+                "4. Reboot the app!"
+            )
+            st.stop()
+
     client = chromadb.PersistentClient(path=persist_dir)
     return client.get_or_create_collection(name="Document__C")
 
 
 @st.cache_data(show_spinner=False)
 def get_subject_counts():
-    collection = get_vector_store()
+    collection=get_vector_store()
     try:
-        results = collection.get(include=["metadatas"])
-        counts = {}
-        for m in results.get("metadatas", []):
+        results=collection.get(include=["metadatas"])
+        counts={}
+        for m in results.get("metadatas",[]):
             if m and "subject" in m:
-                counts[m["subject"]] = counts.get(m["subject"], 0) + 1
+                counts[m["subject"]]=counts.get(m["subject"],0)+1
         return counts
     except Exception:
         return {}
@@ -303,86 +387,84 @@ def get_subject_counts():
 @st.cache_data(show_spinner=False)
 def get_local_ollama_models():
     try:
-        models_list = ollama.list().get("models", [])
-        names = [m.get("name") or m.get("model") for m in models_list if m]
+        models_list=ollama.list().get("models",[])
+        names=[m.get("name") or m.get("model") for m in models_list if m]
         if names:
             return names
     except Exception:
         pass
-    return ["qwen2.5:7b", "llama3.2:latest", "llama3.1:8b", "mistral:7b"]
+    return ["qwen2.5:7b","llama3.2:latest","llama3.1:8b","mistral:7b"]
 
 # 5. RAG RETRIEVAL WITH SUBJECT FILTERING
 def get_related_subjects(subject: str) -> list:
-    if not subject or subject == "All Subjects":
+    if not subject or subject=="All Subjects":
         return []
-    related = [subject]
+    related=[subject]
     if "Notes" in subject:
-        related.append(subject.replace("Notes", "Lab").strip())
+        related.append(subject.replace("Notes","Lab").strip())
     elif "Lab" in subject:
-        related.append(subject.replace("Lab", "Notes").strip())
+        related.append(subject.replace("Lab","Notes").strip())
     extra = {
-        "AI": "AI-NLP Lab", "AI-NLP Lab": "AI",
-        "DBMS": "DBMS Lab", "DBMS Lab": "DBMS",
-        "Devops": "Devops lab", "Devops lab": "Devops",
-        "Java": "Java Lab", "Java Lab": "Java",
+        "AI":"AI-NLP Lab","AI-NLP Lab":"AI",
+        "DBMS":"DBMS Lab","DBMS Lab":"DBMS",
+        "Devops":"Devops lab","Devops lab":"Devops",
+        "Java":"Java Lab","Java Lab":"Java",
     }
     if subject in extra:
         related.append(extra[subject])
     return list(set(related))
 
 
-def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 6) -> str:
-    search_query = expand_query(query, active_subject=subject_filter)
-    emb_model = load_embedding_model()
-    collection = get_vector_store()
-    query_embedding = emb_model.encode([search_query])[0].tolist()
+def retrieve_context(query: str,subject_filter: str ="All Subjects",k: int = 6) -> str:
+    search_query=expand_query(query, active_subject=subject_filter)
+    emb_model=load_embedding_model()
+    collection=get_vector_store()
+    query_embedding=emb_model.encode([search_query])[0].tolist()
 
-    where_clause = None
-    if subject_filter and subject_filter != "All Subjects":
-        targets = get_related_subjects(subject_filter)
-        if len(targets) == 1:
-            where_clause = {"subject": targets[0]}
-        elif len(targets) > 1:
-            where_clause = {"subject": {"$in": targets}}
+    where_clause=None
+    if subject_filter and subject_filter!="All Subjects":
+        targets=get_related_subjects(subject_filter)
+        if len(targets)==1:
+            where_clause={"subject": targets[0]}
+        elif len(targets)>1:
+            where_clause={"subject": {"$in": targets}}
 
-    results = collection.query(query_embeddings=[query_embedding], n_results=k, where=where_clause)
-    docs = results.get("documents", [[]])[0]
+    results=collection.query(query_embeddings=[query_embedding],n_results=k,where=where_clause)
+    docs=results.get("documents",[[]])[0]
     return "\n\n---\n\n".join(docs)
 
 # 6. SESSION STATE INITIALIZATION
 def _fresh_session_state(subject="All Subjects"):
     return {
         "active_session_id": uuid.uuid4().hex[:8],
-        "messages": [],
-        "session_title": "New Chat",
-        "selected_subject": subject,
+        "messages":[],
+        "session_title":"New Chat",
+        "selected_subject":subject,
     }
-
 
 if "active_session_id" not in st.session_state:
     st.session_state.update(_fresh_session_state())
-    st.session_state.loaded_session_id = None
+    st.session_state.loaded_session_id=None
 
 # Load session from disk only on session ID change
-if st.session_state.get("loaded_session_id") != st.session_state.active_session_id:
+if st.session_state.get("loaded_session_id")!=st.session_state.active_session_id:
     data = load_session(st.session_state.active_session_id)
     if data:
-        st.session_state.messages = data.get("messages", [])
-        st.session_state.session_title = data.get("title", "Chat Session")
-        st.session_state.selected_subject = data.get("subject", "All Subjects")
+        st.session_state.messages=data.get("messages",[])
+        st.session_state.session_title=data.get("title","Chat Session")
+        st.session_state.selected_subject=data.get("subject","All Subjects")
     else:
-        st.session_state.messages = []
-        st.session_state.session_title = "New Chat"
+        st.session_state.messages=[]
+        st.session_state.session_title="New Chat"
         # Keep current selected_subject so switching subject → new chat keeps subject
-    st.session_state.loaded_session_id = st.session_state.active_session_id
-
+    st.session_state.loaded_session_id=st.session_state.active_session_id
 
 def switch_subject(new_subject: str):
     """Save current chat, then open/create a chat session for new_subject."""
-    cur_subject = st.session_state.selected_subject
+    cur_subject=st.session_state.selected_subject
 
     # Save current chat if it has messages and subject is changing
-    if st.session_state.messages and cur_subject != new_subject:
+    if st.session_state.messages and cur_subject!=new_subject:
         save_session(
             st.session_state.active_session_id,
             st.session_state.session_title,
@@ -391,27 +473,27 @@ def switch_subject(new_subject: str):
         )
 
     # Look for an existing unfinished session for this subject
-    all_sessions = get_all_sessions()
-    matching = [s for s in all_sessions if s.get("subject") == new_subject]
+    all_sessions=get_all_sessions()
+    matching=[s for s in all_sessions if s.get("subject")==new_subject]
 
-    if matching and len(matching[0].get("messages", [])) == 0:
+    if matching and len(matching[0].get("messages",[]))==0:
         # Restore empty session
         s = matching[0]
-        st.session_state.active_session_id = s["session_id"]
-        st.session_state.messages = []
-        st.session_state.session_title = "New Chat"
+        st.session_state.active_session_id=s["session_id"]
+        st.session_state.messages=[]
+        st.session_state.session_title="New Chat"
     else:
         # Start a fresh session for this subject
         new_id = uuid.uuid4().hex[:8]
-        st.session_state.active_session_id = new_id
-        st.session_state.messages = []
-        st.session_state.session_title = "New Chat"
+        st.session_state.active_session_id=new_id
+        st.session_state.messages=[]
+        st.session_state.session_title="New Chat"
 
-    st.session_state.selected_subject = new_subject
-    st.session_state.loaded_session_id = st.session_state.active_session_id
+    st.session_state.selected_subject=new_subject
+    st.session_state.loaded_session_id=st.session_state.active_session_id
 
 # 7. SIDEBAR — SUBJECT LIST & CHAT HISTORY
-SIDEBAR_CATEGORIES = {
+SIDEBAR_CATEGORIES={
     "🤖 AI & Data Science":    ["AI", "AI-NLP Lab", "ML notes", "ML Lab", "NLP", "Neural network and deep learning", "Reinforcement Learning"],
     "📡 Networks & Security":  ["CN Notes", "CN Lab", "CNS", "CNS Lab", "Cloud Computing", "SNA"],
     "💻 Core CS & Systems":    ["CD Notes", "DAA Notes", "DBMS", "DBMS Lab", "OS", "COA", "FLAT", "Software Engineering", "Devops", "Devops lab", "Data structure"],
@@ -424,7 +506,7 @@ with st.sidebar:
 
     # New Chat button
     if st.button("➕ New Chat", use_container_width=True):
-        cur_subj = st.session_state.selected_subject
+        cur_subj=st.session_state.selected_subject
         if st.session_state.messages:
             save_session(
                 st.session_state.active_session_id,
@@ -432,94 +514,105 @@ with st.sidebar:
                 st.session_state.messages,
                 subject=cur_subj,
             )
-        new_id = uuid.uuid4().hex[:8]
-        st.session_state.active_session_id = new_id
-        st.session_state.loaded_session_id = new_id
-        st.session_state.messages = []
-        st.session_state.session_title = "New Chat"
+        new_id=uuid.uuid4().hex[:8]
+        st.session_state.active_session_id=new_id
+        st.session_state.loaded_session_id=new_id
+        st.session_state.messages=[]
+        st.session_state.session_title="New Chat"
         st.rerun()
-
     st.divider()
 
     # SUBJECT SELECTOR 
     st.markdown("**📚 Select Subject**")
-    cur_subj = st.session_state.selected_subject
+    cur_subj=st.session_state.selected_subject
 
     # All Subjects button
-    btn_type = "primary" if cur_subj == "All Subjects" else "secondary"
-    if st.button("🌐 All Subjects", use_container_width=True, type=btn_type, key="btn_all"):
-        if cur_subj != "All Subjects":
+    btn_type="primary" if cur_subj=="All Subjects" else "secondary"
+    if st.button("🌐 All Subjects",use_container_width=True,type=btn_type,key="btn_all"):
+        if cur_subj!="All Subjects":
             switch_subject("All Subjects")
             st.rerun()
 
     # Per-category subject buttons
-    for cat_name, subjects in SIDEBAR_CATEGORIES.items():
+    for cat_name,subjects in SIDEBAR_CATEGORIES.items():
         st.markdown(f"<div class='sidebar-cat'>{cat_name}</div>", unsafe_allow_html=True)
         for subj in subjects:
-            meta = SUBJECT_METADATA.get(subj, {})
-            icon = meta.get("icon", "📖")
-            title = meta.get("title", subj)
-            stype = meta.get("type", "")
-            label = f"{icon} {title}"
-            if stype == "Lab":
-                label += " 🔬"
+            meta=SUBJECT_METADATA.get(subj, {})
+            icon=meta.get("icon", "📖")
+            title=meta.get("title", subj)
+            stype=meta.get("type", "")
+            label=f"{icon} {title}"
+            if stype=="Lab":
+                label+=" 🔬"
 
-            is_active = (cur_subj == subj)
-            btn_style = "primary" if is_active else "secondary"
-            if st.button(label, key=f"sbtn_{subj}", use_container_width=True, type=btn_style):
+            is_active=(cur_subj==subj)
+            btn_style="primary" if is_active else "secondary"
+            if st.button(label,key=f"sbtn_{subj}",use_container_width=True,type=btn_style):
                 if not is_active:
                     switch_subject(subj)
                     st.rerun()
-
     st.divider()
 
 #CHAT HISTORY 
     st.markdown("**💬 Chat History**")
-    saved = get_all_sessions()
+    saved=get_all_sessions()
     if saved:
         for s in saved:
-            s_id = s["session_id"]
-            s_title = s.get("title", "Chat")
-            s_subj = s.get("subject", "All Subjects")
-            is_active = (s_id == st.session_state.active_session_id)
-            col_t, col_d = st.columns([0.82, 0.18])
-            icon = "📌" if is_active else "💬"
-            subj_meta = SUBJECT_METADATA.get(s_subj, {})
-            subj_icon = subj_meta.get("icon", "📚")
-            label = f"{icon} {s_title}\n{subj_icon} {s_subj}"
-            if col_t.button(label, key=f"sess_{s_id}", use_container_width=True):
-                if s_id != st.session_state.active_session_id:
+            s_id=s["session_id"]
+            s_title=s.get("title", "Chat")
+            s_subj=s.get("subject", "All Subjects")
+            is_active=(s_id==st.session_state.active_session_id)
+            col_t,col_d=st.columns([0.82,0.18])
+            icon="📌" if is_active else "💬"
+            subj_meta=SUBJECT_METADATA.get(s_subj, {})
+            subj_icon=subj_meta.get("icon", "📚")
+            label=f"{icon} {s_title}\n{subj_icon} {s_subj}"
+            if col_t.button(label,key=f"sess_{s_id}",use_container_width=True):
+                if s_id!=st.session_state.active_session_id:
                     st.session_state.active_session_id = s_id
-                    st.session_state.messages = s.get("messages", [])
-                    st.session_state.session_title = s_title
-                    st.session_state.selected_subject = s_subj
-                    st.session_state.loaded_session_id = s_id
+                    st.session_state.messages=s.get("messages",[])
+                    st.session_state.session_title=s_title
+                    st.session_state.selected_subject=s_subj
+                    st.session_state.loaded_session_id=s_id
                     st.rerun()
-            if col_d.button("🗑️", key=f"del_{s_id}"):
+            if col_d.button("🗑️",key=f"del_{s_id}"):
                 delete_session(s_id)
-                if s_id == st.session_state.active_session_id:
-                    new_id = uuid.uuid4().hex[:8]
-                    st.session_state.active_session_id = new_id
-                    st.session_state.loaded_session_id = new_id
-                    st.session_state.messages = []
-                    st.session_state.session_title = "New Chat"
+                if s_id==st.session_state.active_session_id:
+                    new_id=uuid.uuid4().hex[:8]
+                    st.session_state.active_session_id=new_id
+                    st.session_state.loaded_session_id=new_id
+                    st.session_state.messages=[]
+                    st.session_state.session_title="New Chat"
                 st.rerun()
     else:
         st.caption("No saved chats yet.")
 
     st.divider()
 
-    # Model selector
-    local_models = get_local_ollama_models()
-    selected_model = st.selectbox("🧠 AI Model", local_models, index=0)
-    collection = get_vector_store()
-    # st.caption(f"📊 **{collection.count():,}** chunks · **38** subjects")
+    # AI ENGINE / MODEL SELECTOR 
+    st.markdown("**🧠 AI Engine**")
+    groq_api_key=get_groq_api_key()
+    local_models=get_local_ollama_models()
+
+    engine_options=[]
+    if groq_api_key:
+        engine_options.append("⚡ Auto (Groq Fast ➡️ Ollama Backup)")
+        engine_options.append("🚀 Groq Cloud (llama-3.1-8b-instant)")
+        engine_options.append("🚀 Groq Cloud (llama-3.3-70b-versatile)")
+    engine_options.append("💻 Ollama Local (Unlimited)")
+
+    selected_engine=st.selectbox("AI Engine",engine_options,index=0,label_visibility="collapsed")
+    
+    selected_ollama_model="llama3.2:latest"
+    if "Ollama" in selected_engine or "Auto" in selected_engine:
+        if local_models:
+            selected_ollama_model=st.selectbox("Local Model", local_models, index=0)
 
 # 8. MAIN AREA
-cur_subj = st.session_state.selected_subject
-subj_meta = SUBJECT_METADATA.get(cur_subj, {"title": cur_subj if cur_subj != "All Subjects" else "All Subjects", "icon": "🌐", "type": "General"})
-subj_icon = subj_meta.get("icon", "📚")
-subj_title = subj_meta.get("title", cur_subj)
+cur_subj=st.session_state.selected_subject
+subj_meta=SUBJECT_METADATA.get(cur_subj, {"title": cur_subj if cur_subj != "All Subjects" else "All Subjects", "icon": "🌐", "type": "General"})
+subj_icon=subj_meta.get("icon", "📚")
+subj_title=subj_meta.get("title", cur_subj)
 
 st.markdown(
     f"""<div class="subj-banner">
@@ -531,15 +624,15 @@ st.markdown(
 
 #  Render existing messages 
 for msg in st.session_state.messages:
-    avatar = "👤" if msg["role"] == "user" else "✨"
-    with st.chat_message(msg["role"], avatar=avatar):
+    avatar = "👤" if msg["role"]=="user" else "✨"
+    with st.chat_message(msg["role"],avatar=avatar):
         st.markdown(msg["content"])
 
 #  Empty chat: show subject overview + sample questions 
-if len(st.session_state.messages) == 0:
+if len(st.session_state.messages)==0:
     st.markdown(f"### 💡 You're studying **{subj_title}**")
 
-    if cur_subj != "All Subjects":
+    if cur_subj!="All Subjects":
         st.markdown(
             f"You selected **{subj_icon} {subj_title}**. "
             f"All your questions will be answered strictly from **{subj_title}** notes and lab materials. "
@@ -554,22 +647,21 @@ if len(st.session_state.messages) == 0:
     st.markdown("---")
     st.markdown("#### 💬 Sample questions you can ask:")
 
-    sample_qs = SUBJECT_SAMPLE_QUESTIONS.get(cur_subj, SUBJECT_SAMPLE_QUESTIONS["All Subjects"])
+    sample_qs=SUBJECT_SAMPLE_QUESTIONS.get(cur_subj, SUBJECT_SAMPLE_QUESTIONS["All Subjects"])
 
     # Show 4 sample questions in a 2×2 grid
-    col1, col2 = st.columns(2)
-    cols = [col1, col2, col1, col2]
+    col1,col2=st.columns(2)
+    cols=[col1,col2,col1,col2]
     for i, q in enumerate(sample_qs[:4]):
-        if cols[i].button(f"💬 {q}", key=f"sample_q_{i}", use_container_width=True):
-            st.session_state.prompt_input = q
+        if cols[i].button(f"💬 {q}",key=f"sample_q_{i}",use_container_width=True):
+            st.session_state.prompt_input=q
             st.rerun()
-
 
 # PROMPT TEMPLATE
 # Minimum context length (chars) before we consider it "found"
-_MIN_CONTEXT_LENGTH = 80
+_MIN_CONTEXT_LENGTH=80
 
-PROMPT_TEMPLATE = """You are a STRICT academic assistant for engineering students.
+PROMPT_TEMPLATE="""You are a STRICT academic assistant for engineering students.
 
 Current Subject: {active_subject}
 
@@ -595,30 +687,30 @@ Answer (from notes only, or the not-found sentence, nothing else):
 """
 
 #  HANDLE INPUT & STREAM RESPONSE
-input_text = st.session_state.pop("prompt_input", None)
-user_query = st.chat_input(f"Ask anything about {subj_title}...") or input_text
+input_text=st.session_state.pop("prompt_input",None)
+user_query=st.chat_input(f"Ask anything about {subj_title}...") or input_text
 
 if user_query:
-    if len(st.session_state.messages) == 0:
-        st.session_state.session_title = user_query[:28]
+    if len(st.session_state.messages)==0:
+        st.session_state.session_title=user_query[:28]
 
-    st.session_state.messages.append({"role": "user", "content": user_query})
-    with st.chat_message("user", avatar="👤"):
+    st.session_state.messages.append({"role":"user","content":user_query})
+    with st.chat_message("user",avatar="👤"):
         st.markdown(user_query)
 
-    recent_turns = st.session_state.messages[-7:-1]
-    history_str = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in recent_turns])
+    recent_turns=st.session_state.messages[-7:-1]
+    history_str="\n".join([f"{m['role'].capitalize()}:{m['content']}" for m in recent_turns])
 
-    with st.chat_message("assistant", avatar="✨"):
+    with st.chat_message("assistant",avatar="✨"):
         try:
             with st.spinner("Thinking..."):
-                context_str = retrieve_context(user_query, subject_filter=cur_subj, k=6)
+                context_str=retrieve_context(user_query, subject_filter=cur_subj, k=6)
 
-            # ── HARD GUARD: if context is empty or too short, skip LLM entirely ──
-            if len(context_str.strip()) < _MIN_CONTEXT_LENGTH:
-                not_found_msg = f"I don't have this topic in the provided notes for {cur_subj}."
+            # HARD GUARD: if context is empty or too short,skip LLM entirely 
+            if len(context_str.strip())<_MIN_CONTEXT_LENGTH:
+                not_found_msg=f"I don't have this topic in the provided notes for {cur_subj}."
                 st.markdown(not_found_msg)
-                st.session_state.messages.append({"role": "assistant", "content": not_found_msg})
+                st.session_state.messages.append({"role":"assistant","content":not_found_msg})
                 save_session(
                     st.session_state.active_session_id,
                     st.session_state.session_title,
@@ -626,26 +718,56 @@ if user_query:
                     subject=cur_subj,
                 )
             else:
-                prompt = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-                llm = ChatOllama(model=selected_model, temperature=0.0)
-                chain = prompt | llm
+                prompt=ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
+                input_payload={
+                    "active_subject":cur_subj,
+                    "context":context_str,
+                    "chat_history":history_str,
+                    "question":user_query,
+                }
 
-                response_container = st.empty()
-                full_response = ""
+                response_container=st.empty()
+                full_response=""
+                groq_succeeded=False
 
-                for chunk in chain.stream({
-                    "active_subject": cur_subj,
-                    "context": context_str,
-                    "chat_history": history_str,
-                    "question": user_query,
-                }):
-                    piece = chunk.content if hasattr(chunk, "content") else str(chunk)
-                    full_response += piece
-                    response_container.markdown(full_response + "▌")
+                #ATTEMPT 1: Groq Cloud (Fast 500 tokens/sec)
+                if ("Groq" in selected_engine or "Auto" in selected_engine) and groq_api_key and ChatGroq:
+                    try:
+                        g_model="llama-3.1-8b-instant"
+                        if "70b" in selected_engine:
+                            g_model="llama-3.3-70b-versatile"
 
-                response_container.markdown(full_response)
+                        llm_groq=ChatGroq(model=g_model,groq_api_key=groq_api_key,temperature=0.0)
+                        chain_groq=prompt|llm_groq
 
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                        for chunk in chain_groq.stream(input_payload):
+                            piece=chunk.content if hasattr(chunk, "content") else str(chunk)
+                            full_response+=piece
+                            response_container.markdown(full_response +"▌")
+
+                        response_container.markdown(full_response)
+                        groq_succeeded=True
+                    except Exception as groq_err:
+                        err_str=str(groq_err).lower()
+                        if "Auto" in selected_engine:
+                            st.caption("⚡ *Groq rate limit reached — automatically switched to local Ollama.*")
+                            full_response=""
+                        else:
+                            raise groq_err
+
+                # ATTEMPT 2: Local Ollama Fallback (100% Unlimited)
+                if not groq_succeeded:
+                    llm_ollama=ChatOllama(model=selected_ollama_model, temperature=0.0)
+                    chain_ollama=prompt|llm_ollama
+
+                    for chunk in chain_ollama.stream(input_payload):
+                        piece=chunk.content if hasattr(chunk, "content") else str(chunk)
+                        full_response+=piece
+                        response_container.markdown(full_response +"▌")
+
+                    response_container.markdown(full_response)
+
+                st.session_state.messages.append({"role":"assistant","content":full_response})
                 save_session(
                     st.session_state.active_session_id,
                     st.session_state.session_title,
@@ -654,4 +776,4 @@ if user_query:
                 )
 
         except Exception as e:
-            st.error(f"❌ Error: {e}")
+            st.error(f"❌ Error:{e}")

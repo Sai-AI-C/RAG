@@ -9,7 +9,7 @@ import os
 import zipfile
 import time
 
-def make_db_zip(source_dir="./pdf_db", output_zip="pdf_db.zip"):
+def make_db_zip(source_dir="./pdf_db", output_zip="PDF_db.zip"):
     if not os.path.exists(source_dir):
         print(f"[ERROR] Source directory '{source_dir}' not found!")
         return
@@ -41,7 +41,7 @@ def make_db_zip(source_dir="./pdf_db", output_zip="pdf_db.zip"):
     print(f"\n\n[SUCCESS] '{output_zip}' created successfully in {elapsed:.1f}s!")
     print(f"Compressed size: {zip_size_mb:.2f} MB")
     print("\nNext Steps:")
-    print("1. Upload 'pdf_db.zip' to Google Drive (set access to 'Anyone with link')")
+    print("1. Upload 'PDF_db.zip' to Google Drive (set access to 'Anyone with link')")
     print("   OR upload as a Release Asset in your GitHub Repository.")
     print("2. Copy the share link.")
     print("3. Add to Streamlit Cloud Secrets:")
