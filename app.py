@@ -214,16 +214,29 @@ ABBREVIATION_MAP = {
     "cd": "Compiler Design", "ai": "Artificial Intelligence",
     "daa": "Design and Analysis of Algorithms", "dbms": "Database Management Systems",
     "os": "Operating Systems", "ml": "Machine Learning",
-    "nndl": "Neural Networks and Deep Learning", "nlp": "Natural Language Processing",
+    "nnd": "Neural Networks and Deep Learning", "nndl": "Neural Networks and Deep Learning",
+    "dl": "Deep Learning neural networks", "nlp": "Natural Language Processing",
     "flat": "Formal Languages and Automata Theory", "devops": "DevOps Practices and Tools",
     "se": "Software Engineering", "stm": "Software Testing Methodologies",
     "dppm": "Data Preparation and Pattern Mining",
-    "da": "Design Analysis of Algorithms", "acs": "Advanced Communication Systems"
+    "da": "Design Analysis of Algorithms", "acs": "Advanced Communication Systems",
+    "rnn": "Recurrent Neural Networks architecture types",
+    "cnn": "Convolutional Neural Networks layers pooling",
+    "ann": "Artificial Neural Networks feed forward perceptron",
+    "svm": "Support Vector Machine hyperplane margin",
+    "knn": "K Nearest Neighbors algorithm",
+    "regression": "Regression analysis linear logistic polynomial least squares",
+    "regreesion": "Regression analysis linear logistic polynomial least squares",
+    "classification": "Classification algorithms decision tree random forest svm"
 }
 
 
 def expand_query(query: str, active_subject: str = "All Subjects") -> str:
     cleaned = query.strip().lower()
+    
+    # Fix common typos
+    cleaned = cleaned.replace("regreesion", "regression").replace("algorithem", "algorithm")
+
     if active_subject in ["CN Notes", "CN Lab"] and cleaned in ["cn", "define cn", "what is cn"]:
         return "Computer Networks architecture OSI TCP/IP model layers protocols definitions"
     if active_subject in ["AI", "AI-NLP Lab"] and cleaned in ["ai", "define ai", "what is ai"]:
@@ -234,8 +247,17 @@ def expand_query(query: str, active_subject: str = "All Subjects") -> str:
         return "Design and Analysis of Algorithms asymptotic notations time complexity"
     if active_subject in ["ACS Lab"] and cleaned in ["acs", "define acs", "what is acs"]:
         return "Advanced Communication Systems lab experiments record notes"
-    if cleaned in ABBREVIATION_MAP:
-        return f"{query} ({ABBREVIATION_MAP[cleaned]})"
+    if active_subject in ["Neural network and deep learning"] and cleaned in ["nnd", "nndl", "what is nnd", "types of nnd", "what are types of nnd"]:
+        return "Neural Networks and Deep Learning types feed forward recurrent RNN CNN autoencoders single layer multilayer"
+
+    # Search for acronym expansion
+    expanded_parts = []
+    for word in cleaned.split():
+        if word in ABBREVIATION_MAP:
+            expanded_parts.append(ABBREVIATION_MAP[word])
+
+    if expanded_parts:
+        return f"{query} {' '.join(expanded_parts)}"
     return query
 
 # 3. PERSISTENT SESSION STORAGE (PER-SUBJECT)
@@ -397,40 +419,63 @@ def get_local_ollama_models():
 
 # 5. RAG RETRIEVAL WITH SUBJECT FILTERING
 def get_related_subjects(subject: str) -> list:
-    if not subject or subject=="All Subjects":
+    if not subject or subject == "All Subjects":
         return []
-    related=[subject]
+    related = [subject]
     if "Notes" in subject:
-        related.append(subject.replace("Notes","Lab").strip())
+        related.append(subject.replace("Notes", "Lab").strip())
     elif "Lab" in subject:
-        related.append(subject.replace("Lab","Notes").strip())
+        related.append(subject.replace("Lab", "Notes").strip())
+    
+    # Cross-disciplinary subject linkages in curriculum
     extra = {
-        "AI":"AI-NLP Lab","AI-NLP Lab":"AI",
-        "DBMS":"DBMS Lab","DBMS Lab":"DBMS",
-        "Devops":"Devops lab","Devops lab":"Devops",
-        "Java":"Java Lab","Java Lab":"Java",
+        "AI": ["AI-NLP Lab", "NLP", "ML notes"],
+        "AI-NLP Lab": ["AI", "NLP"],
+        "ML notes": ["ML Lab", "Neural network and deep learning", "AI"],
+        "ML Lab": ["ML notes", "Neural network and deep learning"],
+        "Neural network and deep learning": ["ML notes", "ML Lab", "Reinforcement Learning"],
+        "Reinforcement Learning": ["Neural network and deep learning", "ML notes"],
+        "NLP": ["AI", "AI-NLP Lab"],
+        "DBMS": ["DBMS Lab"],
+        "DBMS Lab": ["DBMS"],
+        "Devops": ["Devops lab"],
+        "Devops lab": ["Devops"],
+        "Java": ["Java Lab"],
+        "Java Lab": ["Java"],
+        "Data structure": ["DAA Notes"],
+        "DAA Notes": ["Data structure"],
+        "CD Notes": ["FLAT"],
+        "FLAT": ["CD Notes"],
+        "CN Notes": ["CN Lab"],
+        "CN Lab": ["CN Notes"],
+        "CNS": ["CNS Lab"],
+        "CNS Lab": ["CNS"],
     }
     if subject in extra:
-        related.append(extra[subject])
+        val = extra[subject]
+        if isinstance(val, list):
+            related.extend(val)
+        else:
+            related.append(val)
     return list(set(related))
 
 
-def retrieve_context(query: str,subject_filter: str ="All Subjects",k: int = 6) -> str:
-    search_query=expand_query(query, active_subject=subject_filter)
-    emb_model=load_embedding_model()
-    collection=get_vector_store()
-    query_embedding=emb_model.encode([search_query])[0].tolist()
+def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 8) -> str:
+    search_query = expand_query(query, active_subject=subject_filter)
+    emb_model = load_embedding_model()
+    collection = get_vector_store()
+    query_embedding = emb_model.encode([search_query])[0].tolist()
 
-    where_clause=None
-    if subject_filter and subject_filter!="All Subjects":
-        targets=get_related_subjects(subject_filter)
-        if len(targets)==1:
-            where_clause={"subject": targets[0]}
-        elif len(targets)>1:
-            where_clause={"subject": {"$in": targets}}
+    where_clause = None
+    if subject_filter and subject_filter != "All Subjects":
+        targets = get_related_subjects(subject_filter)
+        if len(targets) == 1:
+            where_clause = {"subject": targets[0]}
+        elif len(targets) > 1:
+            where_clause = {"subject": {"$in": targets}}
 
-    results=collection.query(query_embeddings=[query_embedding],n_results=k,where=where_clause)
-    docs=results.get("documents",[[]])[0]
+    results = collection.query(query_embeddings=[query_embedding], n_results=k, where=where_clause)
+    docs = results.get("documents", [[]])[0]
     return "\n\n---\n\n".join(docs)
 
 # 6. SESSION STATE INITIALIZATION
@@ -659,31 +704,32 @@ if len(st.session_state.messages)==0:
 
 # PROMPT TEMPLATE
 # Minimum context length (chars) before we consider it "found"
-_MIN_CONTEXT_LENGTH=80
+_MIN_CONTEXT_LENGTH = 80
 
-PROMPT_TEMPLATE="""You are a STRICT academic assistant for engineering students.
+PROMPT_TEMPLATE = """You are an expert Professor and academic assistant helping engineering students prepare for exams.
 
-Current Subject: {active_subject}
+Active Subject: {active_subject}
 
-=== ABSOLUTE RULES (NO EXCEPTIONS) ===
-1. Answer ONLY using the context extracted from the {active_subject} notes below.
-2. If the context does NOT contain information to answer the question, reply with ONLY this single sentence:
-   "I don't have this topic in the provided notes for {active_subject}."
-   Then STOP. Do NOT write anything else. Do NOT add general knowledge. Do NOT say 'however'. Do NOT provide any additional information.
-3. NEVER use your training knowledge to fill gaps. NEVER answer from memory.
-4. Do NOT answer questions that are about a different subject. If a student asks about Python while on AI subject, reply with only: "I don't have this topic in the provided notes for {active_subject}."
-5. Only if the context is sufficient: answer thoroughly using Markdown headings (##), bullet points, bold key terms.
+=== ANSWERING GUIDELINES ===
+1. Provide a comprehensive, complete, and exam-ready answer based primarily on the context provided.
+2. Use clear academic formatting:
+   - Use ## for main headings and ### for sub-topics.
+   - Use bold for key terms.
+   - Present algorithms, steps, or procedures in numbered or bulleted lists.
+   - Include equations or code blocks if they aid the explanation.
+3. If information is partially available, state clearly what is found and what is inferred/general knowledge.
+4. If the question is completely outside the scope of {active_subject} or the context, politely inform the student that you don't have that specific information in the notes.
 
 Chat History:
 {chat_history}
 
-Context from {active_subject} Notes:
+Context from Course Notes ({active_subject}):
 {context}
 
 Student Question:
 {question}
 
-Answer (from notes only, or the not-found sentence, nothing else):
+Comprehensive Exam-Ready Answer:
 """
 
 #  HANDLE INPUT & STREAM RESPONSE
@@ -704,7 +750,7 @@ if user_query:
     with st.chat_message("assistant",avatar="✨"):
         try:
             with st.spinner("Thinking..."):
-                context_str=retrieve_context(user_query, subject_filter=cur_subj, k=6)
+                context_str=retrieve_context(user_query, subject_filter=cur_subj, k=8)
 
             # HARD GUARD: if context is empty or too short,skip LLM entirely 
             if len(context_str.strip())<_MIN_CONTEXT_LENGTH:
@@ -730,40 +776,39 @@ if user_query:
                 full_response=""
                 groq_succeeded=False
 
-                #ATTEMPT 1: Groq Cloud (Fast 500 tokens/sec)
+                # ── ATTEMPT 1: Groq Cloud (Fast 500 tokens/sec) ──────
                 if ("Groq" in selected_engine or "Auto" in selected_engine) and groq_api_key and ChatGroq:
                     try:
-                        g_model="llama-3.1-8b-instant"
+                        g_model = "llama-3.1-8b-instant"
                         if "70b" in selected_engine:
-                            g_model="llama-3.3-70b-versatile"
+                            g_model = "llama-3.3-70b-versatile"
 
-                        llm_groq=ChatGroq(model=g_model,groq_api_key=groq_api_key,temperature=0.0)
-                        chain_groq=prompt|llm_groq
+                        llm_groq = ChatGroq(model=g_model, groq_api_key=groq_api_key, temperature=0.2)
+                        chain_groq = prompt | llm_groq
 
                         for chunk in chain_groq.stream(input_payload):
-                            piece=chunk.content if hasattr(chunk, "content") else str(chunk)
-                            full_response+=piece
-                            response_container.markdown(full_response +"▌")
+                            piece = chunk.content if hasattr(chunk, "content") else str(chunk)
+                            full_response += piece
+                            response_container.markdown(full_response + "▌")
 
                         response_container.markdown(full_response)
-                        groq_succeeded=True
+                        groq_succeeded = True
                     except Exception as groq_err:
-                        err_str=str(groq_err).lower()
                         if "Auto" in selected_engine:
                             st.caption("⚡ *Groq rate limit reached — automatically switched to local Ollama.*")
-                            full_response=""
+                            full_response = ""
                         else:
                             raise groq_err
 
-                # ATTEMPT 2: Local Ollama Fallback (100% Unlimited)
+                # ── ATTEMPT 2: Local Ollama Fallback (100% Unlimited) ─
                 if not groq_succeeded:
-                    llm_ollama=ChatOllama(model=selected_ollama_model, temperature=0.0)
-                    chain_ollama=prompt|llm_ollama
+                    llm_ollama = ChatOllama(model=selected_ollama_model, temperature=0.2)
+                    chain_ollama = prompt | llm_ollama
 
                     for chunk in chain_ollama.stream(input_payload):
-                        piece=chunk.content if hasattr(chunk, "content") else str(chunk)
-                        full_response+=piece
-                        response_container.markdown(full_response +"▌")
+                        piece = chunk.content if hasattr(chunk, "content") else str(chunk)
+                        full_response += piece
+                        response_container.markdown(full_response + "▌")
 
                     response_container.markdown(full_response)
 
