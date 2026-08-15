@@ -209,55 +209,152 @@ SUBJECT_SAMPLE_QUESTIONS={
     "All Subjects":     ["What is Computer Networks?",            "Give AI lab list of experiments",       "Explain normalization in DBMS",         "What are types of Machine Learning?"],
 }
 
-ABBREVIATION_MAP = {
+# Global abbreviation map: subject-name → subject abbreviations within that subject's notes
+# These are INTRA-SUBJECT abbreviations (terms used inside the notes of that subject)
+SUBJECT_ABBREV = {
+    "STM Notes": {
+        "cfg": "Control Flow Graph", "cn": "Control Flow Graph (CFG)",
+        "dfg": "Data Flow Graph", "dff": "Data Flow",
+        "jf": "Junction / Decision Flow (Domain Testing)",
+        "tf": "Transaction Flowgraph", "bb": "Basic Block",
+        "nra": "Node Reduction Algorithm", "mcdc": "Modified Condition / Decision Coverage",
+        "dd": "Definition-Definition anomaly", "du": "Definition-Use",
+        "ku": "Kill-Use", "dk": "Definition-Kill",
+        "lcsaj": "Linear Code Sequence And Jump",
+    },
+    "ML notes": {
+        "da": "Data Analysis", "ml": "Machine Learning",
+        "svm": "Support Vector Machine", "knn": "K-Nearest Neighbors",
+        "dt": "Decision Tree", "rf": "Random Forest",
+        "nn": "Neural Network", "bp": "Backpropagation",
+        "lr": "Linear Regression", "log": "Logistic Regression",
+        "em": "Expectation Maximization", "pca": "Principal Component Analysis",
+        "nb": "Naive Bayes", "adaboost": "Adaptive Boosting",
+    },
+    "ML Lab": {
+        "svm": "Support Vector Machine", "knn": "K-Nearest Neighbors",
+        "lr": "Linear Regression", "nb": "Naive Bayes",
+    },
+    "AI": {
+        "bfs": "Breadth First Search", "dfs": "Depth First Search",
+        "ids": "Iterative Deepening Search", "a*": "A Star Search",
+        "csp": "Constraint Satisfaction Problem", "kb": "Knowledge Base",
+        "pl": "Propositional Logic", "fol": "First Order Logic",
+    },
+    "Neural network and deep learning": {
+        "ann": "Artificial Neural Network", "rnn": "Recurrent Neural Network",
+        "cnn": "Convolutional Neural Network", "dnn": "Deep Neural Network",
+        "lstm": "Long Short-Term Memory", "gru": "Gated Recurrent Unit",
+        "gan": "Generative Adversarial Network", "ae": "Autoencoder",
+        "nnd": "Neural Networks and Deep Learning", "nndl": "Neural Networks and Deep Learning",
+        "bp": "Backpropagation", "rbf": "Radial Basis Function",
+    },
+    "CN Notes": {
+        "cn": "Computer Networks", "osi": "Open Systems Interconnection model",
+        "tcp": "Transmission Control Protocol", "udp": "User Datagram Protocol",
+        "ip": "Internet Protocol", "http": "HyperText Transfer Protocol",
+        "dns": "Domain Name System", "nat": "Network Address Translation",
+        "mac": "Media Access Control", "arp": "Address Resolution Protocol",
+    },
+    "CNS": {
+        "rsa": "RSA Public Key Cryptography", "aes": "Advanced Encryption Standard",
+        "des": "Data Encryption Standard", "sha": "Secure Hash Algorithm",
+        "pki": "Public Key Infrastructure", "ca": "Certificate Authority",
+        "vpn": "Virtual Private Network",
+    },
+    "DBMS": {
+        "er": "Entity Relationship", "1nf": "First Normal Form",
+        "2nf": "Second Normal Form", "3nf": "Third Normal Form",
+        "bcnf": "Boyce-Codd Normal Form", "sql": "Structured Query Language",
+        "dml": "Data Manipulation Language", "ddl": "Data Definition Language",
+        "acid": "Atomicity Consistency Isolation Durability",
+    },
+    "OS": {
+        "fcfs": "First Come First Served scheduling", "sjf": "Shortest Job First",
+        "rr": "Round Robin scheduling", "tlb": "Translation Lookaside Buffer",
+        "mmu": "Memory Management Unit", "pcb": "Process Control Block",
+        "ipc": "Inter-Process Communication", "vm": "Virtual Memory",
+    },
+    "DAA Notes": {
+        "da": "Design and Analysis of Algorithms", "daa": "Design and Analysis of Algorithms",
+        "dp": "Dynamic Programming", "bfs": "Breadth First Search",
+        "dfs": "Depth First Search", "mst": "Minimum Spanning Tree",
+        "tsp": "Travelling Salesman Problem",
+    },
+    "Software Engineering": {
+        "sdlc": "Software Development Life Cycle", "srs": "Software Requirements Specification",
+        "uml": "Unified Modelling Language", "dfd": "Data Flow Diagram",
+        "er": "Entity Relationship Diagram",
+    },
+}
+
+# Cross-subject abbreviation map: subject key (like 'CN Notes') → subject title
+SUBJECT_NAME_ABBREV = {
     "cn": "Computer Networks", "cns": "Cryptography and Network Security",
     "cd": "Compiler Design", "ai": "Artificial Intelligence",
     "daa": "Design and Analysis of Algorithms", "dbms": "Database Management Systems",
     "os": "Operating Systems", "ml": "Machine Learning",
     "nnd": "Neural Networks and Deep Learning", "nndl": "Neural Networks and Deep Learning",
-    "dl": "Deep Learning neural networks", "nlp": "Natural Language Processing",
-    "flat": "Formal Languages and Automata Theory", "devops": "DevOps Practices and Tools",
+    "dl": "Deep Learning", "nlp": "Natural Language Processing",
+    "flat": "Formal Languages and Automata Theory", "devops": "DevOps",
     "se": "Software Engineering", "stm": "Software Testing Methodologies",
     "dppm": "Data Preparation and Pattern Mining",
-    "da": "Design Analysis of Algorithms", "acs": "Advanced Communication Systems",
-    "rnn": "Recurrent Neural Networks architecture types",
-    "cnn": "Convolutional Neural Networks layers pooling",
-    "ann": "Artificial Neural Networks feed forward perceptron",
-    "svm": "Support Vector Machine hyperplane margin",
-    "knn": "K Nearest Neighbors algorithm",
-    "regression": "Regression analysis linear logistic polynomial least squares",
-    "regreesion": "Regression analysis linear logistic polynomial least squares",
-    "classification": "Classification algorithms decision tree random forest svm"
+    "acs": "Advanced Communication Systems",
+    "coa": "Computer Organization and Architecture",
+    "sna": "Social Network Analysis",
 }
+
+
+def is_short_query(query: str) -> bool:
+    """Returns True for single words or short abbreviation-style queries."""
+    words = query.strip().split()
+    return len(words) <= 3 or (len(words) <= 5 and all(len(w) <= 5 for w in words))
 
 
 def expand_query(query: str, active_subject: str = "All Subjects") -> str:
     cleaned = query.strip().lower()
-    
     # Fix common typos
     cleaned = cleaned.replace("regreesion", "regression").replace("algorithem", "algorithm")
 
-    if active_subject in ["CN Notes", "CN Lab"] and cleaned in ["cn", "define cn", "what is cn"]:
-        return "Computer Networks architecture OSI TCP/IP model layers protocols definitions"
-    if active_subject in ["AI", "AI-NLP Lab"] and cleaned in ["ai", "define ai", "what is ai"]:
-        return "Artificial Intelligence definitions computational models agents turing test"
-    if active_subject in ["ML notes", "ML Lab"] and cleaned in ["ml", "define ml", "what is ml", "how many types ml", "types ml"]:
-        return "Machine Learning types supervised unsupervised reinforcement learning classification regression"
-    if active_subject in ["DAA Notes"] and cleaned in ["da", "daa", "define da", "what is da"]:
-        return "Design and Analysis of Algorithms asymptotic notations time complexity"
-    if active_subject in ["ACS Lab"] and cleaned in ["acs", "define acs", "what is acs"]:
-        return "Advanced Communication Systems lab experiments record notes"
-    if active_subject in ["Neural network and deep learning"] and cleaned in ["nnd", "nndl", "what is nnd", "types of nnd", "what are types of nnd"]:
-        return "Neural Networks and Deep Learning types feed forward recurrent RNN CNN autoencoders single layer multilayer"
+    # 1. Try subject-specific abbreviation table first (most accurate)
+    subj_abbrevs = SUBJECT_ABBREV.get(active_subject, {})
+    for word in cleaned.split():
+        if word in subj_abbrevs:
+            return f"{query} ({subj_abbrevs[word]})"
 
-    # Search for acronym expansion
+    # 2. Specific subject overrides for very common single-word queries
+    subject_overrides = {
+        ("CN Notes", frozenset(["cn", "define cn", "what is cn"])):
+            "Computer Networks architecture OSI TCP/IP model layers protocols",
+        ("CN Lab", frozenset(["cn", "define cn"])):
+            "Computer Networks lab experiments socket programming",
+        ("AI", frozenset(["ai", "define ai", "what is ai"])):
+            "Artificial Intelligence definitions agents turing test search",
+        ("AI-NLP Lab", frozenset(["ai", "nlp"])):
+            "Artificial Intelligence NLP lab experiments programs",
+        ("ML notes", frozenset(["ml", "define ml", "what is ml", "types ml"])):
+            "Machine Learning types supervised unsupervised classification regression",
+        ("DAA Notes", frozenset(["da", "daa", "define da", "what is da"])):
+            "Design and Analysis of Algorithms asymptotic notations time complexity",
+        ("ACS Lab", frozenset(["acs", "define acs"])):
+            "Advanced Communication Systems lab experiments record",
+        ("Neural network and deep learning", frozenset(["nnd", "nndl", "types of nnd"])):
+            "Neural Networks Deep Learning types feed-forward recurrent RNN CNN autoencoders",
+        ("STM Notes", frozenset(["stm", "what is stm"])):
+            "Software Testing Methodologies testing types coverage white box black box",
+    }
+    for (subj, terms), expansion in subject_overrides.items():
+        if active_subject == subj and cleaned in terms:
+            return expansion
+
+    # 3. Word-level expansion using subject name abbreviations (lowest priority)
     expanded_parts = []
     for word in cleaned.split():
-        if word in ABBREVIATION_MAP:
-            expanded_parts.append(ABBREVIATION_MAP[word])
-
+        if word in SUBJECT_NAME_ABBREV:
+            expanded_parts.append(SUBJECT_NAME_ABBREV[word])
     if expanded_parts:
         return f"{query} {' '.join(expanded_parts)}"
+
     return query
 
 # 3. PERSISTENT SESSION STORAGE (PER-SUBJECT)
@@ -461,6 +558,7 @@ def get_related_subjects(subject: str) -> list:
 
 
 def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 8) -> str:
+    """Hybrid retrieval: semantic search + keyword search for short/abbreviation queries."""
     search_query = expand_query(query, active_subject=subject_filter)
     emb_model = load_embedding_model()
     collection = get_vector_store()
@@ -474,9 +572,44 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
         elif len(targets) > 1:
             where_clause = {"subject": {"$in": targets}}
 
-    results = collection.query(query_embeddings=[query_embedding], n_results=k, where=where_clause)
-    docs = results.get("documents", [[]])[0]
-    return "\n\n---\n\n".join(docs)
+    # --- Semantic search (always done) ---
+    sem_results = collection.query(query_embeddings=[query_embedding], n_results=k, where=where_clause)
+    sem_docs = sem_results.get("documents", [[]])[0]
+
+    # --- Keyword search for short / abbreviation queries ---
+    # For queries like "CN", "DA", "JF", embedding similarity is weak.
+    # ChromaDB where_document $contains does substring matching on chunk text.
+    kw_docs = []
+    raw = query.strip()
+    words = raw.split()
+    if is_short_query(raw) and len(raw) >= 2:
+        try:
+            # Search for the exact query term in document text
+            kw_filter = {"$contains": raw.upper()} if len(raw) <= 4 else {"$contains": raw}
+            kw_where = {"$and": [{"subject": where_clause["subject"]}, {"$document": kw_filter}]} \
+                if where_clause and "subject" in where_clause else {"$document": kw_filter}
+
+            # ChromaDB keyword search via where_document
+            kw_res = collection.query(
+                query_embeddings=[query_embedding],
+                n_results=min(k, 5),
+                where=where_clause,
+                where_document={"$contains": raw.upper() if len(raw) <= 4 else raw},
+            )
+            kw_docs = kw_res.get("documents", [[]])[0]
+        except Exception:
+            kw_docs = []
+
+    # --- Merge: keyword hits first (more precise), then semantic hits, deduplicate ---
+    seen = set()
+    merged = []
+    for doc in (kw_docs + sem_docs):
+        key = doc[:120]  # deduplicate by first 120 chars
+        if key not in seen:
+            seen.add(key)
+            merged.append(doc)
+
+    return "\n\n---\n\n".join(merged)
 
 # 6. SESSION STATE INITIALIZATION
 def _fresh_session_state(subject="All Subjects"):
@@ -706,56 +839,87 @@ if len(st.session_state.messages)==0:
 # Minimum context length (chars) before we consider it "found"
 _MIN_CONTEXT_LENGTH = 80
 
-PROMPT_TEMPLATE = """You are OmniDoc AI, a grounded academic assistant for engineering students preparing for university examinations.
+PROMPT_TEMPLATE = """You are OmniDoc AI, an academic assistant for engineering students.
 
-Your primary job is to explain and answer questions accurately from the student's course notes.
+Your answers must be grounded primarily in the retrieved course notes for the ACTIVE SUBJECT.
 
 ACTIVE SUBJECT: {active_subject}
 
-SOURCE PRIORITY (in order of authority):
-1. COURSE NOTES below — highest authority
-2. The student's current question
-3. Conversation history — only to resolve references like "this", "that", "same topic"
-4. General academic knowledge — ONLY to clarify incomplete material, never to replace course content
+CORE RULE:
+The retrieved course notes are the source of truth for subject-specific definitions,
+terminology, abbreviations, algorithms, procedures, formulas, and concepts.
 
-GROUNDING RULES:
-- Prefer exact information from the retrieved notes.
-- Preserve the terminology and notation used in the notes exactly.
-- Do NOT combine unrelated topics simply because they appear in the same context.
-- Do NOT invent missing steps, formulas, algorithms, examples, or terminology.
-- Do NOT infer that two abbreviations mean the same thing without evidence from the notes.
-- If an abbreviation (like "CN", "JF", "DFF") appears in the student question, resolve it using ONLY the active subject ({active_subject}) and the retrieved context. Do NOT guess from other subjects.
-- If the abbreviation cannot be resolved from the notes, say: "The notes do not clearly define this abbreviation in {active_subject}."
-- Never present an inference as a fact. Mark inferences as: "Based on the context..."
-- When course-note evidence is insufficient, do NOT complete missing information from general knowledge. State what is missing.
+Do NOT answer from memory merely because you know a possible meaning of a term.
+Do NOT invent information not supported by the retrieved course notes.
+Do NOT substitute a common textbook meaning for the meaning used in the student's course.
 
-ANSWERING FORMAT:
-- For "explain X": ## X → ### Definition → ### Explanation → ### Key Points → ### Example (only if notes contain one) → ### Exam Point
-- For multiple concepts ("explain A, B and C"): answer each separately under its own ## heading, then add a comparison if relevant.
-- For algorithms/procedures: give exact steps in order as found in the notes. Do NOT add fabricated steps.
-- For comparisons: use a table.
-- Use ## for main headings, ### for sub-topics, **bold** for key terms, numbered lists for steps.
+ABBREVIATION / SHORT QUERY RULE:
+When the student asks a short question like "CN", "JF", "DA", "DFF":
+1. Search the retrieved context for the exact abbreviation text.
+2. Look for an explicit expansion such as: "CN stands for ...", "CN = ...", or "Control Network (CN)".
+3. Determine if the retrieved context associates the abbreviation with a specific concept.
+4. Only use that meaning if supported by the context.
+If the abbreviation cannot be established from the retrieved notes, say:
+  "The provided {active_subject} notes do not clearly define '[ABBREV]' as an abbreviation."
+Do NOT guess from general knowledge or other subjects.
 
-EXAM ACCURACY RULE:
-Correctness is more important than completeness.
+GROUNDING:
+- SUPPORTED: Directly stated in the course notes → state as fact.
+- INFERRED: Reasonably derived from the notes → prefix with "Based on the provided notes, ..."
+- UNKNOWN: Not in the notes → say "The retrieved notes do not establish this."
+Never present UNKNOWN information as fact.
+
+CONCEPT SEPARATION:
+Do NOT merge different concepts because they appear in the same retrieved context.
+Explain Control Flow Graph, Data Flow Graph, Domain Testing etc. as separate topics unless
+the notes explicitly relate them.
+
+ALGORITHM SAFETY:
+When explaining an algorithm or procedure:
+- Use only steps supported by the notes, in the order given.
+- Do NOT invent missing steps or "complete" an incomplete algorithm from assumptions.
+- If the notes contain only part of the procedure, state that explicitly.
+
+EXAM ANSWER FORMAT:
+For "explain X":
+  ## X
+  ### Definition
+  ### Explanation
+  ### Key Points
+  ### Example  ← only if the notes contain one, or label it "Illustrative example"
+  ### Exam Point
+For multiple concepts ("explain A, B and C"): answer each under its own ## heading.
+For comparisons: use a table.
+Do NOT create sections that are not relevant.
+
+EXAM ACCURACY:
 A shorter correct answer is better than a longer unsupported one.
-Do NOT make the answer sound authoritative when the evidence is weak.
+Do NOT make the answer sound authoritative when evidence is weak.
 
-VALIDATION (check before answering):
-1. Did I answer the exact question asked?
-2. Did I stay within the active subject ({active_subject})?
-3. Did I use the retrieved notes as primary source?
-4. Did I accidentally invent any information?
-5. Did I confuse two different concepts?
-6. If information was missing, did I say so?
+OUT-OF-SCOPE:
+If the requested concept is not supported by the retrieved notes for {active_subject},
+do not fabricate an answer. Say the context does not establish it.
 
-Do NOT begin with "Certainly!", "Sure!", "Of course!" — start directly with the answer.
+CHAT HISTORY RULE:
+Chat history is only for resolving references like "explain the previous one", "compare them".
+Chat history must NOT be treated as course-note evidence.
 
-CONVERSATION HISTORY:
-{chat_history}
+BEFORE ANSWERING, verify:
+1. Did I answer the exact question?
+2. Is the answer supported by the retrieved notes?
+3. Did I guess an abbreviation meaning?
+4. Did I accidentally use knowledge from a different subject?
+5. Did I mix two different concepts?
+6. Did I invent an algorithm step or example?
+7. Did I clearly state when information is missing?
 
-COURSE NOTES / RETRIEVED CONTEXT ({active_subject}):
+Do NOT start with "Certainly!", "Sure!", or "Of course!".
+
+RETRIEVED COURSE NOTES ({active_subject}):
 {context}
+
+CHAT HISTORY:
+{chat_history}
 
 STUDENT QUESTION:
 {question}
