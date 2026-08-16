@@ -1,0 +1,35 @@
+# OmniDoc-RAG Configuration
+app:
+  name: "OmniDoc AI"
+  description: "Academic RAG Assistant for Engineering Students"
+  version: "2.0.0"
+
+database:
+  persist_directory: "./pdf_db/chromadb"
+  collection_name: "Document__C"
+  cloud_zip_path: "./PDF_db.zip"
+
+embeddings:
+  model_name: "all-MiniLM-L6-v2"
+  device: "cpu"
+
+chunking:
+  chunk_size: 1000
+  chunk_overlap: 200
+
+retrieval:
+  top_k: 8
+  min_context_length: 60
+  keyword_min_length: 4
+  relevance_threshold: 0.25
+
+llm:
+  default_groq_model: "llama-3.1-8b-instant"
+  versatile_groq_model: "llama-3.3-70b-versatile"
+  default_ollama_model: "llama3.2:latest"
+  temperature: 0.0
+
+paths:
+  data_dir: "./PDF_Data"
+  chat_sessions_dir: "./chat_history_sessions"
+  logs_dir: "./logs"
