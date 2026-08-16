@@ -312,50 +312,71 @@ def is_short_query(query: str) -> bool:
 
 
 def expand_query(query: str, active_subject: str = "All Subjects") -> str:
-    cleaned = query.strip().lower()
-    # Fix common typos
-    cleaned = cleaned.replace("regreesion", "regression").replace("algorithem", "algorithm")
+    """
+    Normalize the query without inventing subject-specific meanings.
 
-    # 1. Try subject-specific abbreviation table first (most accurate)
-    subj_abbrevs = SUBJECT_ABBREV.get(active_subject, {})
-    for word in cleaned.split():
-        if word in subj_abbrevs:
-            return f"{query} ({subj_abbrevs[word]})"
+    Only expand an abbreviation when it clearly refers to the
+    currently selected subject itself, such as:
+        CN -> Computer Networks when CN Notes is selected
+        ML -> Machine Learning when ML notes is selected
+    """
 
-    # 2. Specific subject overrides for very common single-word queries
-    subject_overrides = {
-        ("CN Notes", frozenset(["cn", "define cn", "what is cn"])):
-            "Computer Networks architecture OSI TCP/IP model layers protocols",
-        ("CN Lab", frozenset(["cn", "define cn"])):
-            "Computer Networks lab experiments socket programming",
-        ("AI", frozenset(["ai", "define ai", "what is ai"])):
-            "Artificial Intelligence definitions agents turing test search",
-        ("AI-NLP Lab", frozenset(["ai", "nlp"])):
-            "Artificial Intelligence NLP lab experiments programs",
-        ("ML notes", frozenset(["ml", "define ml", "what is ml", "types ml"])):
-            "Machine Learning types supervised unsupervised classification regression",
-        ("DAA Notes", frozenset(["da", "daa", "define da", "what is da"])):
-            "Design and Analysis of Algorithms asymptotic notations time complexity",
-        ("ACS Lab", frozenset(["acs", "define acs"])):
-            "Advanced Communication Systems lab experiments record",
-        ("Neural network and deep learning", frozenset(["nnd", "nndl", "types of nnd"])):
-            "Neural Networks Deep Learning types feed-forward recurrent RNN CNN autoencoders",
-        ("STM Notes", frozenset(["stm", "what is stm"])):
-            "Software Testing Methodologies testing types coverage white box black box",
+    cleaned = query.strip()
+
+    # Common typo corrections
+    replacements = {
+        "regreesion": "regression",
+        "algorithem": "algorithm",
     }
-    for (subj, terms), expansion in subject_overrides.items():
-        if active_subject == subj and cleaned in terms:
-            return expansion
 
-    # 3. Word-level expansion using subject name abbreviations (lowest priority)
-    expanded_parts = []
-    for word in cleaned.split():
-        if word in SUBJECT_NAME_ABBREV:
-            expanded_parts.append(SUBJECT_NAME_ABBREV[word])
-    if expanded_parts:
-        return f"{query} {' '.join(expanded_parts)}"
+    normalized = cleaned
+    for wrong, correct in replacements.items():
+        normalized = normalized.replace(wrong, correct)
 
-    return query
+    # Safely expand the selected SUBJECT abbreviation only.
+    subject_abbrev_map = {
+        "AI": "ai",
+        "ML notes": "ml",
+        "NLP": "nlp",
+        "CN Notes": "cn",
+        "CNS": "cns",
+        "CD Notes": "cd",
+        "DAA Notes": "daa",
+        "DBMS": "dbms",
+        "OS": "os",
+        "COA": "coa",
+        "FLAT": "flat",
+        "Software Engineering": "se",
+        "Devops": "devops",
+        "DPPM": "dppm",
+        "ACS Lab": "acs",
+        "SNA": "sna",
+        "STM Notes": "stm",
+        "Reinforcement Learning": "rl",
+    }
+
+    subject_abbrev = subject_abbrev_map.get(active_subject)
+
+    if subject_abbrev:
+        lower_query = normalized.lower()
+
+        # Only expand if the entire query is the subject abbreviation
+        # or a direct "what is/define/explain <abbreviation>" query.
+        patterns = {
+            subject_abbrev,
+            f"what is {subject_abbrev}",
+            f"define {subject_abbrev}",
+            f"explain {subject_abbrev}",
+        }
+
+        if lower_query in patterns:
+            subject_title = SUBJECT_METADATA.get(
+                active_subject, {}
+            ).get("title", active_subject)
+
+            return f"{normalized} ({subject_title})"
+
+    return normalized
 
 # 3. PERSISTENT SESSION STORAGE (PER-SUBJECT)
 def _session_path(session_id: str) -> str:
@@ -514,102 +535,134 @@ def get_local_ollama_models():
         pass
     return ["qwen2.5:7b","llama3.2:latest","llama3.1:8b","mistral:7b"]
 
-# 5. RAG RETRIEVAL WITH SUBJECT FILTERING
 def get_related_subjects(subject: str) -> list:
+    """
+    Strict subject isolation.
+
+    When a specific subject is selected, retrieval is restricted
+    to that exact subject. This prevents unrelated course material
+    from entering the RAG context.
+    """
     if not subject or subject == "All Subjects":
         return []
-    related = [subject]
-    if "Notes" in subject:
-        related.append(subject.replace("Notes", "Lab").strip())
-    elif "Lab" in subject:
-        related.append(subject.replace("Lab", "Notes").strip())
-    
-    # Cross-disciplinary subject linkages in curriculum
-    extra = {
-        "AI": ["AI-NLP Lab", "NLP", "ML notes"],
-        "AI-NLP Lab": ["AI", "NLP"],
-        "ML notes": ["ML Lab", "Neural network and deep learning", "AI"],
-        "ML Lab": ["ML notes", "Neural network and deep learning"],
-        "Neural network and deep learning": ["ML notes", "ML Lab", "Reinforcement Learning"],
-        "Reinforcement Learning": ["Neural network and deep learning", "ML notes"],
-        "NLP": ["AI", "AI-NLP Lab"],
-        "DBMS": ["DBMS Lab"],
-        "DBMS Lab": ["DBMS"],
-        "Devops": ["Devops lab"],
-        "Devops lab": ["Devops"],
-        "Java": ["Java Lab"],
-        "Java Lab": ["Java"],
-        "Data structure": ["DAA Notes"],
-        "DAA Notes": ["Data structure"],
-        "CD Notes": ["FLAT"],
-        "FLAT": ["CD Notes"],
-        "CN Notes": ["CN Lab"],
-        "CN Lab": ["CN Notes"],
-        "CNS": ["CNS Lab"],
-        "CNS Lab": ["CNS"],
-    }
-    if subject in extra:
-        val = extra[subject]
-        if isinstance(val, list):
-            related.extend(val)
-        else:
-            related.append(val)
-    return list(set(related))
+
+    return [subject]
 
 
-def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 8) -> str:
-    """Hybrid retrieval: semantic search + keyword search for short/abbreviation queries."""
-    search_query = expand_query(query, active_subject=subject_filter)
+def retrieve_context(
+    query: str,
+    subject_filter: str = "All Subjects",
+    k: int = 8
+) -> str:
+    """
+    Hybrid retrieval with strict subject filtering.
+
+    For abbreviation-style queries:
+        exact keyword retrieval is preferred.
+
+    For normal questions:
+        semantic retrieval is used.
+
+    Unrelated subjects are never included when a specific subject
+    is selected.
+    """
+
+    search_query = expand_query(
+        query,
+        active_subject=subject_filter
+    )
+
     emb_model = load_embedding_model()
     collection = get_vector_store()
-    query_embedding = emb_model.encode([search_query])[0].tolist()
 
-    where_clause = None
+    query_embedding = emb_model.encode(
+        [search_query]
+    )[0].tolist()
+
+    # SUBJECT FILTER
+    where_clause=None
     if subject_filter and subject_filter != "All Subjects":
-        targets = get_related_subjects(subject_filter)
-        if len(targets) == 1:
-            where_clause = {"subject": targets[0]}
-        elif len(targets) > 1:
-            where_clause = {"subject": {"$in": targets}}
+        where_clause={"subject":subject_filter}
 
-    # --- Semantic search (always done) ---
-    sem_results = collection.query(query_embeddings=[query_embedding], n_results=k, where=where_clause)
-    sem_docs = sem_results.get("documents", [[]])[0]
+    # DETECT ABBREVIATION-STYLE QUESTION
+    raw=query.strip()
+    lower_raw=raw.lower()
+    abbreviation_query=False
+    abbreviation_term=None
+    # Examples:
+    # "CN"
+    # "DA"
+    # "what is CN"
+    # "define JF"
+    # "explain DFF"
+    if len(raw.split())==1:
+        token=raw.strip()
+        if 2<=len(token)<=8 and token.replace("-","").isalnum():
+            abbreviation_query=True
+            abbreviation_term=token
 
-    # --- Keyword search for short / abbreviation queries ---
-    # For queries like "CN", "DA", "JF", embedding similarity is weak.
-    # ChromaDB where_document $contains does substring matching on chunk text.
-    kw_docs = []
-    raw = query.strip()
-    words = raw.split()
-    if is_short_query(raw) and len(raw) >= 2:
-        try:
-            # Search for the exact query term in document text
-            kw_filter = {"$contains": raw.upper()} if len(raw) <= 4 else {"$contains": raw}
-            kw_where = {"$and": [{"subject": where_clause["subject"]}, {"$document": kw_filter}]} \
-                if where_clause and "subject" in where_clause else {"$document": kw_filter}
+    prefixes=("what is ","define ","explain ","what's ","what are ","what's the ","what's an ","what's a")
 
-            # ChromaDB keyword search via where_document
-            kw_res = collection.query(
-                query_embeddings=[query_embedding],
-                n_results=min(k, 5),
-                where=where_clause,
-                where_document={"$contains": raw.upper() if len(raw) <= 4 else raw},
-            )
-            kw_docs = kw_res.get("documents", [[]])[0]
-        except Exception:
-            kw_docs = []
+    if not abbreviation_query:
+        for prefix in prefixes:
+            if lower_raw.startswith(prefix):
+                remaining=raw[len(prefix):].strip()
 
-    # --- Merge: keyword hits first (more precise), then semantic hits, deduplicate ---
-    seen = set()
-    merged = []
-    for doc in (kw_docs + sem_docs):
-        key = doc[:120]  # deduplicate by first 120 chars
+                if (2<=len(remaining)<=8 and len(remaining.split()) == 1 and remaining.replace("-","").isalnum()):
+                    abbreviation_query=True
+                    abbreviation_term=remaining
+                    break
+
+    # ABBREVIATION RETRIEVAL
+    if abbreviation_query and abbreviation_term:
+        exact_terms=list(dict.fromkeys([
+            abbreviation_term,
+            abbreviation_term.lower(),
+            abbreviation_term.upper(),
+            abbreviation_term.capitalize(),
+        ]))
+
+        keyword_docs=[]
+
+        for term in exact_terms:
+            try:
+                kw_res=collection.query(query_embeddings=[query_embedding],n_results=min(k,5),where=where_clause,where_document={"$contains":term})
+
+                docs=kw_res.get("documents",[[]])[0]
+
+                for doc in docs:
+                    if doc not in keyword_docs:
+                        keyword_docs.append(doc)
+
+            except Exception:
+                continue
+
+        # IMPORTANT:
+        # If exact abbreviation evidence doesn't exist,
+        # do NOT fall back to semantic guessing.
+        if not keyword_docs:
+            return ""
+        return "\n\n---\n\n".join(keyword_docs[:k])
+
+    # NORMAL SEMANTIC RETRIEVAL
+    sem_results=collection.query(query_embeddings=[query_embedding],n_results=k,where=where_clause)
+
+    sem_docs=sem_results.get("documents",[[]])[0]
+
+    if not sem_docs:
+        return ""
+
+    # Deduplicate
+    seen=set()
+    merged=[]
+
+    for doc in sem_docs:
+        key=doc[:200]
+
         if key not in seen:
             seen.add(key)
             merged.append(doc)
-
-    return "\n\n---\n\n".join(merged)
+    return "\n\n---\n\n".join(merged[:k])
 
 # 6. SESSION STATE INITIALIZATION
 def _fresh_session_state(subject="All Subjects"):
@@ -784,7 +837,7 @@ with st.sidebar:
     selected_ollama_model="llama3.2:latest"
     if "Ollama" in selected_engine or "Auto" in selected_engine:
         if local_models:
-            selected_ollama_model=st.selectbox("Local Model", local_models, index=0)
+            selected_ollama_model=st.selectbox("Local Model", local_models,index=0)
 
 # 8. MAIN AREA
 cur_subj=st.session_state.selected_subject
@@ -837,7 +890,7 @@ if len(st.session_state.messages)==0:
 
 # PROMPT TEMPLATE
 # Minimum context length (chars) before we consider it "found"
-_MIN_CONTEXT_LENGTH = 80
+_MIN_CONTEXT_LENGTH=1
 
 PROMPT_TEMPLATE = """You are OmniDoc AI, an academic assistant for engineering students.
 
@@ -948,8 +1001,10 @@ if user_query:
                 context_str=retrieve_context(user_query, subject_filter=cur_subj, k=8)
 
             # HARD GUARD: if context is empty or too short,skip LLM entirely 
-            if len(context_str.strip())<_MIN_CONTEXT_LENGTH:
-                not_found_msg=f"I don't have this topic in the provided notes for {cur_subj}."
+            if not context_str.strip():
+                not_found_msg = (
+                    f"I couldn't find this topic in the provided "
+                    f"{subj_title} notes.")
                 st.markdown(not_found_msg)
                 st.session_state.messages.append({"role":"assistant","content":not_found_msg})
                 save_session(
@@ -971,14 +1026,14 @@ if user_query:
                 full_response=""
                 groq_succeeded=False
 
-                # ── ATTEMPT 1: Groq Cloud (Fast 500 tokens/sec) ──────
+                # ATTEMPT 1: Groq Cloud (Fast 500 tokens/sec)
                 if ("Groq" in selected_engine or "Auto" in selected_engine) and groq_api_key and ChatGroq:
                     try:
                         g_model = "llama-3.1-8b-instant"
                         if "70b" in selected_engine:
                             g_model = "llama-3.3-70b-versatile"
 
-                        llm_groq = ChatGroq(model=g_model, groq_api_key=groq_api_key, temperature=0.2)
+                        llm_groq = ChatGroq(model=g_model, groq_api_key=groq_api_key, temperature=0.0)
                         chain_groq = prompt | llm_groq
 
                         for chunk in chain_groq.stream(input_payload):
@@ -995,9 +1050,9 @@ if user_query:
                         else:
                             raise groq_err
 
-                # ── ATTEMPT 2: Local Ollama Fallback (100% Unlimited) ─
+                # ATTEMPT 2: Local Ollama Fallback (100% Unlimited)
                 if not groq_succeeded:
-                    llm_ollama = ChatOllama(model=selected_ollama_model, temperature=0.2)
+                    llm_ollama = ChatOllama(model=selected_ollama_model, temperature=0.0)
                     chain_ollama = prompt | llm_ollama
 
                     for chunk in chain_ollama.stream(input_payload):
