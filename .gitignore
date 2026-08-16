@@ -23,6 +23,11 @@ chroma.sqlite3
 *.db
 *.sqlite3
 *.zip
+
+# Chat sessions & runtime logs
+chat_history_sessions/
+logs/*.log
+
 # IDE / OS files
 .vscode/
 .idea/
