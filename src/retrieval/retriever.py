@@ -15,7 +15,7 @@ from src.utils.helpers import (
 def expand_query(query: str, active_subject: str = "All Subjects") -> str:
     """
     Intelligently expands student queries using active-subject context without cross-polluting.
-    Handles subject-specific abbreviations, common typos, and full subject queries.
+    Handles subject-specific abbreviations, common typos, and subject/lab overview questions.
     """
     raw = query.strip()
     cleaned = raw.lower()
@@ -41,33 +41,43 @@ def expand_query(query: str, active_subject: str = "All Subjects") -> str:
 
     # 3. Subject-level direct question overrides
     subject_direct_overrides = {
-        ("CN Notes", frozenset(["cn", "define cn", "what is cn", "explain cn"])):
+        ("CN Notes", ("cn", "define cn", "what is cn", "explain cn")):
             "Computer Networks architecture OSI TCP/IP model layers protocols",
-        ("CN Lab", frozenset(["cn", "define cn", "what is cn"])):
+        ("CN Lab", ("cn", "define cn", "what is cn", "cn lab", "experiments")):
             "Computer Networks lab experiments socket programming networking",
-        ("AI", frozenset(["ai", "define ai", "what is ai", "explain ai"])):
+        ("AI", ("ai", "define ai", "what is ai", "explain ai")):
             "Artificial Intelligence definitions agents turing test heuristic search",
-        ("AI-NLP Lab", frozenset(["ai", "nlp"])):
+        ("AI-NLP Lab", ("ai", "nlp", "ai lab", "nlp lab", "experiments")):
             "Artificial Intelligence NLP lab experiments programs",
-        ("ML notes", frozenset(["ml", "define ml", "what is ml", "types ml", "types of ml"])):
+        ("ML notes", ("ml", "define ml", "what is ml", "types ml", "types of ml")):
             "Machine Learning types supervised unsupervised reinforcement learning classification regression",
-        ("DAA Notes", frozenset(["da", "daa", "define da", "what is da", "what is daa"])):
+        ("ML Lab", ("ml lab", "experiments", "list of experiments", "ml programs")):
+            "Machine Learning lab experiments algorithms dataset classification regression",
+        ("DAA Notes", ("da", "daa", "define da", "what is da", "what is daa")):
             "Design and Analysis of Algorithms asymptotic notations time complexity divide and conquer",
-        ("ACS Lab", frozenset(["acs", "define acs", "what is acs"])):
-            "Advanced Communication Systems lab experiments modulation transmission",
-        ("Neural network and deep learning", frozenset(["nnd", "nndl", "types of nnd", "what is nnd"])):
+        ("ACS Lab", ("acs", "define acs", "what is acs", "acs lab", "what is acs lab", "experiments", "list of experiments")):
+            "Advanced Communication Systems lab experiments modulation transmission fiber optics microwave",
+        ("Neural network and deep learning", ("nnd", "nndl", "types of nnd", "what is nnd")):
             "Neural Networks Deep Learning types feed-forward recurrent RNN CNN autoencoders",
-        ("STM Notes", frozenset(["stm", "what is stm", "define stm"])):
+        ("STM Notes", ("stm", "what is stm", "define stm")):
             "Software Testing Methodologies testing types coverage white box black box",
-        ("DBMS", frozenset(["dbms", "what is dbms", "define dbms"])):
+        ("DBMS", ("dbms", "what is dbms", "define dbms")):
             "Database Management Systems relational database schema SQL normalization",
-        ("OS", frozenset(["os", "what is os", "define os"])):
+        ("DBMS Lab", ("dbms lab", "experiments", "sql queries", "programs")):
+            "Database Management Systems lab queries triggers normalization tables",
+        ("OS", ("os", "what is os", "define os")):
             "Operating Systems process management scheduling memory virtualization",
+        ("Java", ("java", "what is java", "oop java")):
+            "Java Programming OOP concepts classes objects inheritance polymorphism exception handling",
+        ("Java Lab", ("java lab", "programs", "experiments")):
+            "Java Programming lab experiments programs multithreading socket file handling",
     }
 
     for (target_subj, triggers), expanded_text in subject_direct_overrides.items():
-        if active_subject == target_subj and cleaned in triggers:
-            return expanded_text
+        if active_subject == target_subj:
+            for trigger in triggers:
+                if trigger == cleaned or trigger in cleaned:
+                    return expanded_text
 
     # 4. If in "All Subjects" mode or global search, check cross-subject abbreviations
     if active_subject == "All Subjects":
@@ -226,7 +236,8 @@ def is_context_relevant(query: str, context: str, active_subject: str) -> Tuple[
     stop_words = {
         "what", "is", "the", "in", "of", "and", "or", "to", "a", "an", "explain",
         "describe", "define", "about", "give", "list", "types", "different",
-        "how", "many", "does", "do", "for", "with", "from", "by", "on", "notes"
+        "how", "many", "does", "do", "for", "with", "from", "by", "on", "notes",
+        "all", "some", "can", "you", "me", "tell", "show", "please"
     }
     words = re.findall(r'\b[a-zA-Z0-9_-]+\b', query.lower())
     query_keywords = [w for w in words if w not in stop_words and len(w) > 1]
@@ -234,12 +245,17 @@ def is_context_relevant(query: str, context: str, active_subject: str) -> Tuple[
     if not query_keywords:
         return True, None
 
+    # Check if the query is asking about the subject itself or lab experiments
+    subj_tokens = set(re.findall(r'\b[a-zA-Z0-9_-]+\b', f"{active_subject} {subj_title}".lower()))
+    common_lab_terms = {"lab", "experiment", "experiments", "manual", "syllabus", "overview", "programs", "list"}
+    if any(w in subj_tokens or w in common_lab_terms for w in query_keywords) and len(context.strip()) > 80:
+        return True, None
+
     # Check if any significant query keywords appear in the retrieved context
     context_lower = context.lower()
     expanded = expand_query(query, active_subject=active_subject).lower()
     expanded_words = [w for w in re.findall(r'\b[a-zA-Z0-9_-]+\b', expanded) if w not in stop_words and len(w) > 1]
 
-    # Keyword presence check
     match_count = sum(1 for kw in query_keywords if re.search(r'\b' + re.escape(kw) + r'\b', context_lower))
     expanded_match_count = sum(1 for kw in expanded_words if re.search(r'\b' + re.escape(kw) + r'\b', context_lower))
 
@@ -248,6 +264,8 @@ def is_context_relevant(query: str, context: str, active_subject: str) -> Tuple[
     if active_subject in ["Java", "Java Lab"] and "data analysis" in query.lower():
         is_subject_mismatch = True
     elif active_subject in ["CN Notes", "CN Lab"] and "normal distribution" in query.lower():
+        is_subject_mismatch = True
+    elif active_subject in ["DBMS", "DBMS Lab"] and "turing machine" in query.lower():
         is_subject_mismatch = True
 
     if is_subject_mismatch or (match_count == 0 and expanded_match_count == 0):
