@@ -135,14 +135,41 @@ def get_related_subjects(subject: str) -> List[str]:
 
 
 def is_garbled_ocr(text: str) -> bool:
-    """Detects OCR artifact noise chunks with low alphanumeric or broken token density."""
-    if not text or len(text.strip()) < 20:
+    """
+    Detects OCR artifact noise chunks with multiple heuristics:
+    - Too short (single chars, page numbers, stray OCR fragments)
+    - Contains unicode replacement chars (\ufffd = broken OCR character)
+    - Very few real English words (word density)
+    - Low alphanumeric ratio
+    """
+    if not text:
         return True
     cleaned = text.strip()
+
+    # 1. Single char or tiny chunks (page numbers, stray marks)
+    if len(cleaned) < 30:
+        return True
+
+    # 2. Unicode replacement char indicates broken OCR scan
+    if cleaned.count('\ufffd') > 2:
+        return True
+
+    # 3. Low alphanumeric ratio
     alpha_chars = sum(c.isalnum() or c.isspace() for c in cleaned)
     ratio = alpha_chars / max(len(cleaned), 1)
-    if ratio < 0.65:
+    if ratio < 0.60:
         return True
+
+    # 4. Very low real word density (garbled OCR has many non-word tokens)
+    tokens = cleaned.split()
+    if len(tokens) < 5:
+        return True
+    # Real word = at least 3 consecutive alphabetic chars
+    real_words = sum(1 for t in tokens if sum(c.isalpha() for c in t) >= 3)
+    word_ratio = real_words / max(len(tokens), 1)
+    if word_ratio < 0.35:
+        return True
+
     return False
 
 
@@ -170,10 +197,10 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
         elif len(targets) > 1:
             where_clause = {"subject": {"$in": targets}}
 
-    # 1. Semantic search (primary)
+    # 1. Semantic search — fetch k+6 to compensate for garbled chunks that will be filtered
     sem_docs = db_manager.query_similarity(
         query_embedding=query_embedding,
-        n_results=k,
+        n_results=k + 6,
         where=where_clause
     )
 
