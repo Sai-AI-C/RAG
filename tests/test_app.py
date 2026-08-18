@@ -43,6 +43,32 @@ class TestOmniDocRAG(unittest.TestCase):
         expanded = expand_query("what is ACS Lab", active_subject="ACS Lab")
         self.assertIn("Advanced Communication Systems", expanded)
 
+    def test_case_insensitive_subject_resolution(self):
+        expanded = expand_query("explain DA", active_subject="ml notes")
+        self.assertIn("Data Analysis", expanded)
+
+        expanded_acs = expand_query("what is ACS Lab", active_subject="acs lab")
+        self.assertIn("Advanced Communication Systems", expanded_acs)
+
+        long_acs_context = (
+            "Experiment 1: Time Division Multiplexing in optical communication systems. "
+            "Experiment 2: Optical Fiber Link Setup and attenuation measurement for signal loss."
+        )
+        is_rel, msg = is_context_relevant("What is ACS Lab", long_acs_context, "acs lab")
+        self.assertTrue(is_rel)
+
+    def test_economics_definition_is_not_rejected_for_related_terms(self):
+        short_context = "Economic principles explain how households and firms allocate scarce resources."
+        is_rel, _ = is_context_relevant("What is Economics?", short_context, "POE")
+        self.assertTrue(is_rel)
+
+        richer_context = (
+            "Economic principles explain how households and firms allocate scarce resources. "
+            "The study of demand, supply, and market equilibrium forms the core of economic analysis."
+        )
+        is_rel, _ = is_context_relevant("What is Economics?", richer_context, "POE")
+        self.assertTrue(is_rel)
+
     def test_no_cross_contamination(self):
         # Asking CN in Java should not expand to Computer Networks
         expanded = expand_query("what is CN", active_subject="Java")

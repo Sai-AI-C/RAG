@@ -46,6 +46,24 @@ DEFAULT_CONFIG = {
 }
 
 
+def normalize_subject_name(subject: Optional[str]) -> Optional[str]:
+    """Return the canonical subject key regardless of case or whitespace."""
+    if subject is None:
+        return None
+
+    raw = subject.strip()
+    if not raw:
+        return raw
+    if raw.lower() == "all subjects":
+        return "All Subjects"
+
+    for canonical in list(SUBJECT_METADATA.keys()) + list(SUBJECT_ABBREV.keys()):
+        if canonical.lower() == raw.lower():
+            return canonical
+
+    return raw
+
+
 def load_app_config(config_path: str = "./config.yaml") -> Dict[str, Any]:
     """Load configuration from YAML file with fallback to defaults."""
     if os.path.exists(config_path):

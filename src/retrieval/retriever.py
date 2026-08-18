@@ -9,6 +9,7 @@ from src.utils.helpers import (
     SUBJECT_NAME_ABBREV,
     SUBJECT_METADATA,
     is_short_query,
+    normalize_subject_name,
 )
 
 
@@ -17,6 +18,7 @@ def expand_query(query: str, active_subject: str = "All Subjects") -> str:
     Intelligently expands student queries using active-subject context without cross-polluting.
     Handles subject-specific abbreviations, common typos, and subject/lab overview questions.
     """
+    active_subject = normalize_subject_name(active_subject) or "All Subjects"
     raw = query.strip()
     cleaned = raw.lower()
 
@@ -94,6 +96,7 @@ def get_related_subjects(subject: str) -> List[str]:
     Returns related subject labels for multi-collection/subject retrieval filtering.
     For instance, linking Lab and Theory notes together.
     """
+    subject = normalize_subject_name(subject)
     if not subject or subject == "All Subjects":
         return []
 
@@ -247,11 +250,7 @@ def is_context_relevant(query: str, context: str, active_subject: str) -> Tuple[
     If completely out-of-scope (e.g. asking "Data Analysis" in "Java Programming"), returns a clear
     subject-specific guidance message rather than letting the LLM hallucinate general knowledge.
     """
-    if not context or len(context.strip()) < 50:
-        subj_meta = SUBJECT_METADATA.get(active_subject, {})
-        subj_title = subj_meta.get("title", active_subject)
-        fallback = OUT_OF_SCOPE_TEMPLATE.format(query=query, subject_title=subj_title)
-        return False, fallback
+    active_subject = normalize_subject_name(active_subject) or active_subject
 
     if active_subject == "All Subjects":
         return True, None
@@ -272,11 +271,22 @@ def is_context_relevant(query: str, context: str, active_subject: str) -> Tuple[
     if not query_keywords:
         return True, None
 
-    # Check if the query is asking about the subject itself or lab experiments
+    # Check if the query is about the subject itself or a lab overview before enforcing
+    # the short-context rejection guard. This avoids false negatives like "What is Economics?"
+    # under POE when the retrieved snippet is a short but relevant definition.
     subj_tokens = set(re.findall(r'\b[a-zA-Z0-9_-]+\b', f"{active_subject} {subj_title}".lower()))
     common_lab_terms = {"lab", "experiment", "experiments", "manual", "syllabus", "overview", "programs", "list"}
-    if any(w in subj_tokens or w in common_lab_terms for w in query_keywords) and len(context.strip()) > 80:
+    subject_self_query = any(
+        w in subj_tokens or w in common_lab_terms or 
+        any(w.startswith(t) or t.startswith(w) for t in subj_tokens if len(t) > 3)
+        for w in query_keywords
+    )
+    if subject_self_query and len(context.strip()) > 25:
         return True, None
+
+    if not context or len(context.strip()) < 50:
+        fallback = OUT_OF_SCOPE_TEMPLATE.format(query=query, subject_title=subj_title)
+        return False, fallback
 
     # Check if any significant query keywords appear in the retrieved context
     context_lower = context.lower()
