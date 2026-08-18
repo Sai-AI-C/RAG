@@ -7,16 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import clean architecture modules from src
-from src.utils.helpers import (
-    load_app_config,
-    get_groq_api_key,
-    SUBJECT_METADATA,
-    SIDEBAR_CATEGORIES,
-    SUBJECT_SAMPLE_QUESTIONS,
-    get_all_sessions,
-    save_session,
-    delete_session,
-)
+from src.utils.helpers import (load_app_config,get_groq_api_key,SUBJECT_METADATA,SIDEBAR_CATEGORIES,SUBJECT_SAMPLE_QUESTIONS,get_all_sessions,save_session,delete_session)
 from src.vectordb.vector_store import get_vector_store, get_subject_counts
 from src.retrieval.retriever import retrieve_context, is_context_relevant
 from src.llm.llm_client import get_local_ollama_models, stream_llm_response
@@ -98,51 +89,49 @@ st.markdown("""
 # 2. SESSION STATE INITIALIZATION
 def init_session_state():
     if "active_session_id" not in st.session_state:
-        st.session_state.active_session_id = uuid.uuid4().hex[:8]
+        st.session_state.active_session_id=uuid.uuid4().hex[:8]
     if "selected_subject" not in st.session_state:
-        st.session_state.selected_subject = "All Subjects"
+        st.session_state.selected_subject="All Subjects"
     if "messages" not in st.session_state:
-        st.session_state.messages = []
+        st.session_state.messages=[]
     if "session_title" not in st.session_state:
-        st.session_state.session_title = "New Chat"
+        st.session_state.session_title="New Chat"
     if "prompt_input" not in st.session_state:
-        st.session_state.prompt_input = None
+        st.session_state.prompt_input=None
 
 init_session_state()
 
-
 def switch_subject(new_subject: str):
     """Switch active subject and start a fresh chat session."""
-    st.session_state.selected_subject = new_subject
-    st.session_state.active_session_id = uuid.uuid4().hex[:8]
-    st.session_state.messages = []
-    st.session_state.session_title = "New Chat"
-    st.session_state.prompt_input = None
-
+    st.session_state.selected_subject=new_subject
+    st.session_state.active_session_id=uuid.uuid4().hex[:8]
+    st.session_state.messages=[]
+    st.session_state.session_title="New Chat"
+    st.session_state.prompt_input=None
 
 # 3. SIDEBAR NAVIGATION
 with st.sidebar:
     st.markdown("### 📚 **OmniDoc AI**")
     st.caption("Grounded Academic Assistant for Engineering Students")
 
-    col_new, col_cnt = st.columns([0.65, 0.35])
-    if col_new.button("➕ New Chat", use_container_width=True, type="primary"):
+    col_new, col_cnt=st.columns([0.65,0.35])
+    if col_new.button("➕ New Chat",use_container_width=True,type="primary"):
         switch_subject(st.session_state.selected_subject)
         st.rerun()
 
-    subj_counts = get_subject_counts()
-    total_docs = sum(subj_counts.values()) if subj_counts else 0
+    subj_counts=get_subject_counts()
+    total_docs=sum(subj_counts.values()) if subj_counts else 0
     col_cnt.markdown(f"<div style='text-align:right; font-size:0.75rem; color:#94a3b8; padding-top:6px;'>{total_docs} Chunks</div>", unsafe_allow_html=True)
 
     st.divider()
 
     st.markdown("**Select Subject**")
-    cur_subj = st.session_state.selected_subject
+    cur_subj=st.session_state.selected_subject
 
     # Global All Subjects button
-    btn_type = "primary" if cur_subj == "All Subjects" else "secondary"
-    if st.button("🌐 All Subjects", use_container_width=True, type=btn_type, key="btn_all"):
-        if cur_subj != "All Subjects":
+    btn_type="primary" if cur_subj=="All Subjects" else "secondary"
+    if st.button("🌐 All Subjects",use_container_width=True,type=btn_type,key="btn_all"):
+        if cur_subj!="All Subjects":
             switch_subject("All Subjects")
             st.rerun()
 
@@ -150,49 +139,48 @@ with st.sidebar:
     for cat_name, subjects in SIDEBAR_CATEGORIES.items():
         st.markdown(f"<div class='sidebar-cat'>{cat_name}</div>", unsafe_allow_html=True)
         for subj in subjects:
-            meta = SUBJECT_METADATA.get(subj, {})
-            icon = meta.get("icon", "📖")
-            title = meta.get("title", subj)
-            stype = meta.get("type", "")
-            label = f"{icon} {title}"
-            if stype == "Lab":
-                label += " 🔬"
+            meta=SUBJECT_METADATA.get(subj, {})
+            icon=meta.get("icon", "📖")
+            title=meta.get("title", subj)
+            stype=meta.get("type", "")
+            label=f"{icon} {title}"
+            if stype=="Lab":
+                label+=" 🔬"
 
-            is_active = (cur_subj == subj)
-            btn_style = "primary" if is_active else "secondary"
-            if st.button(label, key=f"sbtn_{subj}", use_container_width=True, type=btn_style):
+            is_active=(cur_subj==subj)
+            btn_style="primary" if is_active else "secondary"
+            if st.button(label,key=f"sbtn_{subj}",use_container_width=True,type=btn_style):
                 if not is_active:
                     switch_subject(subj)
                     st.rerun()
-
     st.divider()
 
     # Chat History
     st.markdown("**💬 Chat History**")
-    saved_sessions = get_all_sessions()
+    saved_sessions=get_all_sessions()
     if saved_sessions:
         for s in saved_sessions:
-            s_id = s["session_id"]
-            s_title = s.get("title", "Chat")
-            s_subj = s.get("subject", "All Subjects")
-            is_active = (s_id == st.session_state.active_session_id)
+            s_id=s["session_id"]
+            s_title=s.get("title", "Chat")
+            s_subj=s.get("subject", "All Subjects")
+            is_active=(s_id==st.session_state.active_session_id)
             col_t, col_d = st.columns([0.82, 0.18])
-            icon = "📌" if is_active else "💬"
-            subj_meta = SUBJECT_METADATA.get(s_subj, {})
-            subj_icon = subj_meta.get("icon", "📚")
-            label = f"{icon} {s_title}\n{subj_icon} {s_subj}"
+            icon="📌" if is_active else "💬"
+            subj_meta=SUBJECT_METADATA.get(s_subj,{})
+            subj_icon=subj_meta.get("icon","📚")
+            label=f"{icon} {s_title}\n{subj_icon} {s_subj}"
 
-            if col_t.button(label, key=f"sess_{s_id}", use_container_width=True):
-                if s_id != st.session_state.active_session_id:
-                    st.session_state.active_session_id = s_id
-                    st.session_state.messages = s.get("messages", [])
-                    st.session_state.session_title = s_title
-                    st.session_state.selected_subject = s_subj
+            if col_t.button(label,key=f"sess_{s_id}",use_container_width=True):
+                if s_id!=st.session_state.active_session_id:
+                    st.session_state.active_session_id=s_id
+                    st.session_state.messages=s.get("messages",[])
+                    st.session_state.session_title=s_title
+                    st.session_state.selected_subject=s_subj
                     st.rerun()
 
-            if col_d.button("🗑️", key=f"del_{s_id}"):
+            if col_d.button("🗑️",key=f"del_{s_id}"):
                 delete_session(s_id)
-                if s_id == st.session_state.active_session_id:
+                if s_id==st.session_state.active_session_id:
                     switch_subject(cur_subj)
                 st.rerun()
     else:
@@ -202,28 +190,27 @@ with st.sidebar:
 
     # AI Engine Selection
     st.markdown("**🧠 AI Engine**")
-    groq_api_key = get_groq_api_key()
-    local_models = get_local_ollama_models()
+    groq_api_key=get_groq_api_key()
+    local_models=get_local_ollama_models()
 
-    engine_options = []
+    engine_options=[]
     if groq_api_key:
         engine_options.append("⚡ Auto (Groq Fast ➡️ Ollama Backup)")
         engine_options.append("🚀 Groq Cloud (llama-3.1-8b-instant)")
         engine_options.append("🚀 Groq Cloud (llama-3.3-70b-versatile)")
     engine_options.append("💻 Ollama Local (Unlimited)")
 
-    selected_engine = st.selectbox("AI Engine", engine_options, index=0, label_visibility="collapsed")
-    selected_ollama_model = "llama3.2:latest"
+    selected_engine=st.selectbox("AI Engine",engine_options,index=0,label_visibility="collapsed")
+    selected_ollama_model="llama3.2:latest"
     if "Ollama" in selected_engine or "Auto" in selected_engine:
         if local_models:
-            selected_ollama_model = st.selectbox("Local Model", local_models, index=0)
-
+            selected_ollama_model=st.selectbox("Local Model",local_models,index=0)
 
 # 4. MAIN CHAT AREA
-cur_subj = st.session_state.selected_subject
-subj_meta = SUBJECT_METADATA.get(cur_subj, {"title": cur_subj if cur_subj != "All Subjects" else "All Subjects", "icon": "🌐", "type": "General"})
-subj_icon = subj_meta.get("icon", "📚")
-subj_title = subj_meta.get("title", cur_subj)
+cur_subj=st.session_state.selected_subject
+subj_meta=SUBJECT_METADATA.get(cur_subj,{"title": cur_subj if cur_subj!="All Subjects" else "All Subjects","icon": "🌐","type": "General"})
+subj_icon=subj_meta.get("icon","📚")
+subj_title=subj_meta.get("title",cur_subj)
 
 st.markdown(
     f"""<div class="subj-banner">
@@ -235,56 +222,51 @@ st.markdown(
 
 # Render conversation history
 for msg in st.session_state.messages:
-    avatar = "👤" if msg["role"] == "user" else "✨"
+    avatar="👤" if msg["role"]=="user" else "✨"
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
 
 # Empty chat suggestions
 if len(st.session_state.messages) == 0:
     st.markdown(f"### 💡 Studying **{subj_title}**")
-    if cur_subj != "All Subjects":
-        st.markdown(
-            f"All your questions will be answered strictly from verified **{subj_title}** course notes and lab materials."
-        )
+    if cur_subj!="All Subjects":
+        st.markdown(f"All your questions will be answered strictly from verified **{subj_title}** course notes and lab materials.")
     else:
-        st.markdown(
-            "Global Search mode: Questions are searched across all engineering subject notes."
-        )
+        st.markdown("Global Search mode: Questions are searched across all engineering subject notes.")
 
     st.markdown("---")
     st.markdown("#### 💬 Frequently Asked Questions:")
-    sample_qs = SUBJECT_SAMPLE_QUESTIONS.get(cur_subj, SUBJECT_SAMPLE_QUESTIONS["All Subjects"])
+    sample_qs=SUBJECT_SAMPLE_QUESTIONS.get(cur_subj, SUBJECT_SAMPLE_QUESTIONS["All Subjects"])
 
-    col1, col2 = st.columns(2)
-    cols = [col1, col2, col1, col2]
+    col1, col2=st.columns(2)
+    cols=[col1,col2,col1,col2]
     for i, q in enumerate(sample_qs[:4]):
-        if cols[i].button(f"💬 {q}", key=f"sample_q_{i}", use_container_width=True):
-            st.session_state.prompt_input = q
+        if cols[i].button(f"💬 {q}",key=f"sample_q_{i}",use_container_width=True):
+            st.session_state.prompt_input=q
             st.rerun()
 
-
 # 5. INPUT & STREAMING GENERATION
-input_text = st.session_state.pop("prompt_input", None)
-user_query = st.chat_input(f"Ask anything about {subj_title}...") or input_text
+input_text=st.session_state.pop("prompt_input",None)
+user_query=st.chat_input(f"Ask anything about {subj_title}...") or input_text
 
 if user_query:
-    if len(st.session_state.messages) == 0:
-        st.session_state.session_title = user_query[:28]
+    if len(st.session_state.messages)==0:
+        st.session_state.session_title=user_query[:28]
 
-    st.session_state.messages.append({"role": "user", "content": user_query})
-    with st.chat_message("user", avatar="👤"):
+    st.session_state.messages.append({"role":"user","content":user_query})
+    with st.chat_message("user",avatar="👤"):
         st.markdown(user_query)
 
-    recent_turns = st.session_state.messages[-7:-1]
-    history_str = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in recent_turns])
+    recent_turns=st.session_state.messages[-7:-1]
+    history_str="\n".join([f"{m['role'].capitalize()}:{m['content']}" for m in recent_turns])
 
-    with st.chat_message("assistant", avatar="✨"):
+    with st.chat_message("assistant",avatar="✨"):
         try:
             with st.spinner("Searching course notes..."):
-                context_str = retrieve_context(user_query, subject_filter=cur_subj, k=8)
+                context_str=retrieve_context(user_query,subject_filter=cur_subj,k=8)
 
             # Pre-LLM Relevance & Anti-Hallucination Gate
-            is_relevant, out_of_scope_msg = is_context_relevant(
+            is_relevant,out_of_scope_msg=is_context_relevant(
                 query=user_query,
                 context=context_str,
                 active_subject=cur_subj
@@ -293,7 +275,7 @@ if user_query:
             if not is_relevant:
                 # Direct grounded response — preventing LLM hallucination
                 st.markdown(out_of_scope_msg)
-                st.session_state.messages.append({"role": "assistant", "content": out_of_scope_msg})
+                st.session_state.messages.append({"role": "assistant","content": out_of_scope_msg})
                 save_session(
                     st.session_state.active_session_id,
                     st.session_state.session_title,
@@ -301,8 +283,8 @@ if user_query:
                     subject=cur_subj,
                 )
             else:
-                response_container = st.empty()
-                full_response = ""
+                response_container=st.empty()
+                full_response=""
 
                 def handle_fallback():
                     st.caption("⚡ *Groq rate limit reached — automatically switched to local Ollama.*")
@@ -317,11 +299,11 @@ if user_query:
                     local_model=selected_ollama_model,
                     on_fallback=handle_fallback
                 ):
-                    full_response += chunk
+                    full_response+=chunk
                     response_container.markdown(full_response + "▌")
 
                 response_container.markdown(full_response)
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                st.session_state.messages.append({"role": "assistant","content": full_response})
                 save_session(
                     st.session_state.active_session_id,
                     st.session_state.session_title,
