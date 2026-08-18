@@ -194,17 +194,18 @@ with st.sidebar:
     ollama_online = is_ollama_online()
     local_models = get_local_ollama_models()
 
-    engine_options=[]
+    engine_options = []
     if groq_api_key:
         engine_options.append("⚡ Auto (Groq Fast ➡️ Ollama Backup)")
-        engine_options.append("🚀 Groq Cloud (llama-3.1-8b-instant)")
-        engine_options.append("🚀 Groq Cloud (llama-3.3-70b-versatile)")
+        engine_options.append("🚀 Groq Cloud (gpt-oss-120b)")
+        engine_options.append("🚀 Groq Cloud (gpt-oss-20b)")
+        engine_options.append("🚀 Groq Cloud (compound-mini)")
     if ollama_online:
         engine_options.append("💻 Ollama Local (Unlimited)")
     elif not groq_api_key:
         engine_options.append("⚡ Auto (Groq Cloud)")
 
-    selected_engine=st.selectbox("AI Engine",engine_options,index=0,label_visibility="collapsed")
+    selected_engine = st.selectbox("AI Engine", engine_options, index=0, label_visibility="collapsed")
     selected_ollama_model="llama3.2:latest"
     if "Ollama" in selected_engine or "Auto" in selected_engine:
         if local_models:
