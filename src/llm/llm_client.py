@@ -1,12 +1,22 @@
 import os
 import socket
 from typing import List, Generator, Dict, Any, Optional, Callable
-import ollama
+
+try:
+    import ollama
+except ImportError:  # pragma: no cover - optional dependency for local model listing
+    ollama = None
+
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
+
+try:
+    from langchain_ollama import ChatOllama
+except ImportError:  # pragma: no cover - optional dependency for local inference
+    ChatOllama = None
+
 try:
     from langchain_groq import ChatGroq
-except ImportError:
+except ImportError:  # pragma: no cover - optional dependency for cloud inference
     ChatGroq = None
 
 from src.prompts.prompt_templates import PROMPT_TEMPLATE
@@ -27,7 +37,7 @@ def is_ollama_online(host: str = "127.0.0.1", port: int = 11434, timeout: float 
 
 def get_local_ollama_models() -> List[str]:
     """Fetch locally installed Ollama models only if the Ollama daemon is active."""
-    if not is_ollama_online():
+    if not is_ollama_online() or ollama is None:
         return []
     try:
         models_list = ollama.list().get("models", [])
@@ -58,7 +68,7 @@ def create_ollama_client(
     temperature: float = 0.0
 ) -> Optional[ChatOllama]:
     """Create a LangChain ChatOllama instance if server is online."""
-    if not is_ollama_online():
+    if ChatOllama is None or not is_ollama_online():
         return None
     return ChatOllama(model=model_name, temperature=temperature)
 
@@ -120,6 +130,12 @@ def stream_llm_response(
     ollama_available = is_ollama_online()
 
     if ollama_available:
+        if ChatOllama is None:
+            yield (
+                "⚠️ **Ollama package not installed in this environment.**\n\n"
+                "Install the required dependency and restart the app: `pip install ollama langchain-ollama`."
+            )
+            return
         try:
             llm_ollama = ChatOllama(model=local_model, temperature=temp)
             chain_ollama = prompt | llm_ollama
