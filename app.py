@@ -19,7 +19,7 @@ from src.utils.helpers import (
 )
 from src.vectordb.vector_store import get_vector_store, get_subject_counts
 from src.retrieval.retriever import retrieve_context, is_context_relevant
-from src.llm.llm_client import get_local_ollama_models, stream_llm_response
+from src.llm.llm_client import get_local_ollama_models, is_ollama_online, stream_llm_response
 
 # 1. PAGE CONFIGURATION & STYLING
 st.set_page_config(
@@ -203,6 +203,7 @@ with st.sidebar:
     # AI Engine Selection
     st.markdown("**🧠 AI Engine**")
     groq_api_key = get_groq_api_key()
+    ollama_online = is_ollama_online()
     local_models = get_local_ollama_models()
 
     engine_options = []
@@ -210,13 +211,24 @@ with st.sidebar:
         engine_options.append("⚡ Auto (Groq Fast ➡️ Ollama Backup)")
         engine_options.append("🚀 Groq Cloud (llama-3.1-8b-instant)")
         engine_options.append("🚀 Groq Cloud (llama-3.3-70b-versatile)")
-    engine_options.append("💻 Ollama Local (Unlimited)")
+    if ollama_online:
+        engine_options.append("💻 Ollama Local (Unlimited)")
+    elif not groq_api_key:
+        engine_options.append("⚡ Auto (Groq Cloud)")
 
     selected_engine = st.selectbox("AI Engine", engine_options, index=0, label_visibility="collapsed")
     selected_ollama_model = "llama3.2:latest"
     if "Ollama" in selected_engine or "Auto" in selected_engine:
         if local_models:
             selected_ollama_model = st.selectbox("Local Model", local_models, index=0)
+
+    # Helper input for Groq API key if not configured in secrets/env
+    if not groq_api_key and not ollama_online:
+        st.warning("⚠️ **Groq API Key Required**")
+        user_key_input = st.text_input("Enter Groq API Key", type="password", placeholder="gsk_...", key="user_groq_key")
+        if user_key_input:
+            os.environ["GROQ_API_KEY"] = user_key_input.strip()
+            st.rerun()
 
 
 # 4. MAIN CHAT AREA
@@ -267,7 +279,8 @@ if len(st.session_state.messages) == 0:
 input_text = st.session_state.pop("prompt_input", None)
 user_query = st.chat_input(f"Ask anything about {subj_title}...") or input_text
 
-if user_query:
+if user_query and user_query.strip():
+    user_query = user_query.strip()
     if len(st.session_state.messages) == 0:
         st.session_state.session_title = user_query[:28]
 
@@ -305,9 +318,9 @@ if user_query:
                 full_response = ""
 
                 def handle_fallback():
-                    st.caption("⚡ *Groq rate limit reached — automatically switched to local Ollama.*")
+                    st.caption("⚡ *Groq cloud notice — switching engine.*")
 
-                # Stream response through unified client
+                # Stream response through unified client (handles connection safety internally)
                 for chunk in stream_llm_response(
                     active_subject=cur_subj,
                     context=context_str,
@@ -330,4 +343,4 @@ if user_query:
                 )
 
         except Exception as e:
-            st.error(f"❌ Error processing request: {e}")
+            st.error(f"❌ Error: {e}")
