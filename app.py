@@ -191,6 +191,7 @@ with st.sidebar:
     # AI Engine Selection
     st.markdown("**🧠 AI Engine**")
     groq_api_key = get_groq_api_key()
+    ollama_online = is_ollama_online()
     local_models = get_local_ollama_models()
 
     engine_options=[]
