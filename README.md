@@ -69,7 +69,7 @@ c:\OmniDoc-RAG\
 
 1. **Anti-Hallucination Relevance Gate**: Queries asked under a specific subject are validated against course notes. Out-of-scope queries (e.g. asking *Data Analysis* under *Java Programming*) are intercepted programmatically with guidance to the correct subject.
 2. **Context-Aware Abbreviation Resolution**: Short queries like `CN`, `DA`, `JF`, `DFF` are resolved strictly within the active subject's scope (e.g., `CN` in *Software Testing* → *Control Flow Graph*, while `CN` in *Computer Networks* → *Computer Networks*).
-3. **Hybrid Inference Engine**: Blazing fast responses using Groq Cloud (`llama-3.1-8b-instant`), with automatic fallback to local Ollama when rate limits are reached.
+3. **Hybrid Inference Engine**: Blazing fast responses using Groq Cloud (`openai/gpt-oss-120b`), with automatic fallback to local Ollama when rate limits are reached.
 4. **Subject-Scoped Navigation**: Over 38 engineering subjects categorized across *AI & Data Science*, *Networks & Security*, *Core CS & Systems*, and *Management & Electives*.
 
 ## 📊 System Performance

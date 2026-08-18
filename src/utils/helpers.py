@@ -32,8 +32,9 @@ DEFAULT_CONFIG = {
         "relevance_threshold": 0.25
     },
     "llm": {
-        "default_groq_model": "llama-3.1-8b-instant",
-        "versatile_groq_model": "llama-3.3-70b-versatile",
+        "default_groq_model": "openai/gpt-oss-120b",
+        "fast_groq_model": "openai/gpt-oss-20b",
+        "mini_groq_model": "groq/compound-mini",
         "default_ollama_model": "llama3.2:latest",
         "temperature": 0.0
     },
