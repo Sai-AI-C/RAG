@@ -4,7 +4,7 @@ Unit and Integration tests for OmniDoc-RAG
 
 import unittest
 from src.retrieval.retriever import expand_query, get_related_subjects, is_context_relevant, is_garbled_ocr
-from src.utils.helpers import load_app_config, is_short_query, SUBJECT_METADATA
+from src.utils.helpers import load_app_config, is_short_query, SUBJECT_METADATA, SUBJECT_SCOPE_CONTEXT
 from src.llm.llm_client import is_ollama_online
 
 
@@ -42,6 +42,17 @@ class TestOmniDocRAG(unittest.TestCase):
     def test_acs_lab_expansion(self):
         expanded = expand_query("what is ACS Lab", active_subject="ACS Lab")
         self.assertIn("Advanced Communication Systems", expanded)
+
+    def test_msf_and_cns_lab_query_expansion(self):
+        msf_query = expand_query("What is Management Science?", active_subject="MSF")
+        self.assertIn("Management Science and Finance", msf_query)
+
+        cns_lab_query = expand_query("List all CNS lab experiments", active_subject="CNS Lab")
+        self.assertIn("Cryptography and Network Security", cns_lab_query)
+
+    def test_scanned_subject_scope_fallback_is_useful(self):
+        self.assertIn("Management science applies", SUBJECT_SCOPE_CONTEXT["MSF"])
+        self.assertIn("Economics studies", SUBJECT_SCOPE_CONTEXT["POE"])
 
     def test_case_insensitive_subject_resolution(self):
         expanded = expand_query("explain DA", active_subject="ml notes")

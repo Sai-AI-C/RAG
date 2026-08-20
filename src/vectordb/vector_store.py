@@ -90,13 +90,51 @@ class VectorStoreManager:
     def get_indexed_sources(self) -> Set[str]:
         """Fetch all unique source file paths currently stored in the collection."""
         try:
-            results = self.collection.get(include=["metadatas"])
-            metadatas = results.get("metadatas", [])
-            indexed_sources = {m.get("source") for m in metadatas if m and "source" in m}
+            indexed_sources = set()
+            offset = 0
+            page_size = 1000
+            while True:
+                results = self.collection.get(
+                    include=["metadatas"],
+                    limit=page_size,
+                    offset=offset,
+                )
+                metadatas = results.get("metadatas", [])
+                indexed_sources.update(
+                    m.get("source") for m in metadatas if m and "source" in m
+                )
+                if len(metadatas) < page_size:
+                    break
+                offset += page_size
             return indexed_sources
         except Exception as e:
             print(f"Warning: Could not fetch indexed sources: {e}")
             return set()
+
+    def delete_records(self, subject: Optional[str] = None) -> int:
+        """Delete indexed records only; source documents on disk are never touched."""
+        try:
+            deleted = 0
+            offset = 0
+            page_size = 1000
+            while True:
+                filters = {"subject": subject} if subject else None
+                results = self.collection.get(
+                    where=filters,
+                    include=[],
+                    limit=page_size,
+                    offset=offset,
+                )
+                ids = results.get("ids", [])
+                if not ids:
+                    break
+                self.collection.delete(ids=ids)
+                deleted += len(ids)
+                if len(ids) < page_size:
+                    break
+            return deleted
+        except Exception as e:
+            raise RuntimeError(f"Could not delete vector records safely: {e}") from e
 
     def add_documents(self, documents: List[Document], embeddings: np.ndarray, batch_size: int = 500):
         """Add documents and embeddings in batches."""

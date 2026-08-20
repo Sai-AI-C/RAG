@@ -8,9 +8,25 @@ from src.utils.helpers import (
     SUBJECT_ABBREV,
     SUBJECT_NAME_ABBREV,
     SUBJECT_METADATA,
+    SUBJECT_SCOPE_CONTEXT,
     is_short_query,
     normalize_subject_name,
 )
+
+
+def _subject_scope_fallback(subject: str) -> str:
+    """Provide minimal selected-subject evidence when its notes have no readable text."""
+    if subject in SUBJECT_SCOPE_CONTEXT:
+        return SUBJECT_SCOPE_CONTEXT[subject]
+
+    metadata = SUBJECT_METADATA.get(subject, {})
+    title = metadata.get("title", subject)
+    kind = metadata.get("type", "course")
+    return (
+        f"Selected subject scope: {title}. This is the {kind.lower()} collection "
+        "selected by the student. Use the subject title as the topic boundary and "
+        "state clearly when the indexed notes do not provide further detail."
+    )
 
 
 def expand_query(query: str, active_subject: str = "All Subjects") -> str:
@@ -43,6 +59,12 @@ def expand_query(query: str, active_subject: str = "All Subjects") -> str:
 
     # 3. Subject-level direct question overrides
     subject_direct_overrides = {
+        ("MSF", ("msf", "management science", "what is management science", "define management science")):
+            "Management Science and Finance management science decision making operations research financial management",
+        ("POE", ("poe", "economics", "what is economics", "define economics", "principles of economics")):
+            "Principles of Economics economic principles demand supply markets microeconomics macroeconomics",
+        ("CNS Lab", ("cns lab", "cns experiments", "list all cns lab experiments", "experiments")):
+            "Cryptography and Network Security lab experiments practical programs Caesar cipher RSA DES AES hashing",
         ("CN Notes", ("cn", "define cn", "what is cn", "explain cn")):
             "Computer Networks architecture OSI TCP/IP model layers protocols",
         ("CN Lab", ("cn", "define cn", "what is cn", "cn lab", "experiments")):
@@ -80,6 +102,12 @@ def expand_query(query: str, active_subject: str = "All Subjects") -> str:
             for trigger in triggers:
                 if trigger == cleaned or trigger in cleaned:
                     return expanded_text
+
+    subject_title = SUBJECT_METADATA.get(active_subject, {}).get("title", active_subject)
+    if active_subject != "All Subjects" and re.search(
+        r"\b(what is|define|explain|list|experiments|programs|overview)\b", cleaned
+    ):
+        return f"{raw} {subject_title}"
 
     # 4. If in "All Subjects" mode or global search, check cross-subject abbreviations
     if active_subject == "All Subjects":
@@ -184,6 +212,7 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
     3. For multi-word/long queries (>= 4 chars), performs exact keyword filtering.
     4. Filters out garbled OCR noise and deduplicates chunks.
     """
+    subject_filter = normalize_subject_name(subject_filter) or "All Subjects"
     search_query = expand_query(query, active_subject=subject_filter)
     embedder = get_embedding_model()
     db_manager = get_vector_store()
@@ -195,6 +224,10 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
     where_clause = None
     if subject_filter and subject_filter != "All Subjects":
         targets = get_related_subjects(subject_filter)
+        # Lab lists must stay in the lab collection instead of returning theory chunks.
+        is_lab_subject = SUBJECT_METADATA.get(subject_filter, {}).get("type") == "Lab"
+        if is_lab_subject and re.search(r"\b(list|experiment|experiments|programs|practical)\b", query.lower()):
+            targets = [subject_filter]
         if len(targets) == 1:
             where_clause = {"subject": targets[0]}
         elif len(targets) > 1:
@@ -212,15 +245,22 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
     kw_docs = []
     raw_query = query.strip()
     if len(raw_query) >= 4 and not is_short_query(raw_query):
-        try:
-            kw_docs = db_manager.query_similarity(
-                query_embedding=query_embedding,
-                n_results=min(k, 4),
-                where=where_clause,
-                where_document={"$contains": raw_query}
-            )
-        except Exception:
-            kw_docs = []
+        keyword_queries = [raw_query]
+        subject_keyword_queries = [
+            SUBJECT_METADATA.get(subject_filter, {}).get("title", subject_filter),
+        ]
+        keyword_queries.extend(subject_keyword_queries)
+
+        for keyword_query in keyword_queries:
+            try:
+                kw_docs.extend(db_manager.query_similarity(
+                    query_embedding=query_embedding,
+                    n_results=min(k, 4),
+                    where=where_clause,
+                    where_document={"$contains": keyword_query}
+                ))
+            except Exception:
+                continue
 
     # 3. Merge, filter out noisy OCR, and deduplicate
     seen_prefixes: Set[str] = set()
@@ -238,9 +278,23 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
             merged_docs.append(doc.strip())
 
     if not merged_docs:
+        if re.search(r"\b(what is|define|explain|overview)\b", query.lower()):
+            return _subject_scope_fallback(subject_filter)
         return ""
 
-    return "\n\n---\n\n".join(merged_docs[:k])
+    merged_context = "\n\n---\n\n".join(merged_docs[:k])
+    if subject_filter != "All Subjects" and re.search(
+        r"\b(what is|define|explain)\b", query.lower()
+    ):
+        title_tokens = re.findall(
+            r"\b[a-zA-Z0-9]{4,}\b",
+            SUBJECT_METADATA.get(subject_filter, {}).get("title", subject_filter).lower(),
+        )
+        topic_tokens = tuple(title_tokens)
+        if not any(token in merged_context.lower() for token in topic_tokens):
+            return _subject_scope_fallback(subject_filter)
+
+    return merged_context
 
 
 def is_context_relevant(query: str, context: str, active_subject: str) -> Tuple[bool, Optional[str]]:
@@ -281,7 +335,12 @@ def is_context_relevant(query: str, context: str, active_subject: str) -> Tuple[
         any(w.startswith(t) or t.startswith(w) for t in subj_tokens if len(t) > 3)
         for w in query_keywords
     )
-    if subject_self_query and len(context.strip()) > 25:
+    context_subject_evidence = any(
+        re.search(r"\b" + re.escape(token) + r"\b", context.lower())
+        for token in subj_tokens
+        if len(token) > 3
+    )
+    if subject_self_query and context_subject_evidence and len(context.strip()) > 25:
         return True, None
 
     if not context or len(context.strip()) < 50:

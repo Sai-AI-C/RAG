@@ -17,11 +17,12 @@ def run_streamlit():
     subprocess.run(cmd)
 
 
-def run_ingestion(data_dir: str = "./PDF_Data"):
-    """Run incremental document ingestion into ChromaDB."""
+def run_ingestion(data_dir: str = "./PDF_Data", subject: str = None, rebuild: bool = False):
+    """Run incremental or explicit safe rebuild ingestion into ChromaDB."""
     from src.ingestion.loader import process_directory_incrementally
-    print(f"🔄 Starting Document Ingestion from '{data_dir}'...")
-    process_directory_incrementally(root_path=data_dir)
+    mode = "rebuild" if rebuild else "incremental"
+    print(f"Starting {mode} ingestion from '{data_dir}'...")
+    process_directory_incrementally(root_path=data_dir, subject_filter=subject, rebuild=rebuild)
 
 
 def main():
@@ -33,13 +34,15 @@ def main():
         help="Execution mode: 'app' (default: Streamlit UI), 'ingest' (process PDFs), 'test' (run test suite)"
     )
     parser.add_argument("--data-dir", default="./PDF_Data", help="Path to PDF directory for ingestion")
+    parser.add_argument("--subject", help="Rebuild only this PDF_Data subject folder")
+    parser.add_argument("--rebuild", action="store_true", help="Clear matching vector records before ingestion; never deletes source files")
 
     args = parser.parse_args()
 
     if args.mode == "app":
         run_streamlit()
     elif args.mode == "ingest":
-        run_ingestion(args.data_dir)
+        run_ingestion(args.data_dir, subject=args.subject, rebuild=args.rebuild)
     elif args.mode == "test":
         import unittest
         loader = unittest.TestLoader()

@@ -195,6 +195,21 @@ SUBJECT_SAMPLE_QUESTIONS = {
     "All Subjects": ["What is Computer Networks?", "Give AI lab list of experiments", "Explain normalization in DBMS", "What are types of Machine Learning?"]
 }
 
+# Used only when scanned subject notes have no readable OCR text for a subject-level query.
+SUBJECT_SCOPE_CONTEXT = {
+    "MSF": (
+        "Subject scope: Management Science and Finance. Management science applies "
+        "quantitative methods, models, and analytical decision-making techniques to "
+        "business and organizational problems. The subject commonly includes operations "
+        "research, statistics, optimization, and financial management."
+    ),
+    "POE": (
+        "Subject scope: Principles of Economics. Economics studies how individuals, "
+        "businesses, and governments allocate scarce resources. Core topics include "
+        "demand, supply, markets, production, and macroeconomic indicators."
+    ),
+}
+
 # Intra-subject specific abbreviations
 SUBJECT_ABBREV = {
     "STM Notes": {

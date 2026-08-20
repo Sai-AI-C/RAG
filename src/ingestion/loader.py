@@ -1,7 +1,8 @@
 import os
 import io
-from typing import List, Set
+from typing import List, Set, Optional
 import fitz  # PyMuPDF
+import numpy as np
 from langchain_core.documents import Document
 from src.chunking.chunker import split_documents
 from src.embeddings.embedder import get_embedding_model
@@ -13,10 +14,51 @@ def is_image_pdf(pdf_doc: fitz.Document) -> bool:
     """Check if PDF is primarily scanned images without selectable text."""
     total_text_len = 0
     total_images = 0
+    short_text_pages = 0
     for page in pdf_doc:
-        total_text_len += len(page.get_text().strip())
+        page_text_len = len(page.get_text().strip())
+        total_text_len += page_text_len
         total_images += len(page.get_images())
-    return total_text_len < 100 and total_images > 0
+        if page_text_len < 30:
+            short_text_pages += 1
+
+    page_count = max(len(pdf_doc), 1)
+    mostly_short_pages = short_text_pages / page_count >= 0.5
+    low_text_density = total_text_len / page_count < 30
+    return total_images > 0 and (low_text_density or mostly_short_pages)
+
+
+def _ocr_page(page: fitz.Page) -> Optional[str]:
+    """Extract readable text from a scanned page using the bundled OCR backend."""
+    pix = page.get_pixmap(dpi=180, alpha=False)
+    image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+
+        result, _ = RapidOCR()(image)
+        if result:
+            lines = [
+                item[1].strip()
+                for item in result
+                if len(item) > 2 and float(item[2]) >= 0.35 and item[1].strip()
+            ]
+            text = "\n".join(lines)
+            if text.strip():
+                return text
+    except Exception:
+        pass
+
+    try:
+        import pytesseract
+        from PIL import Image
+
+        tesseract_default = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        if os.path.exists(tesseract_default):
+            pytesseract.pytesseract.tesseract_cmd = tesseract_default
+        return pytesseract.image_to_string(Image.fromarray(image)).strip()
+    except Exception:
+        return None
 
 
 def load_single_pdf(file_path: str) -> List[Document]:
@@ -25,29 +67,16 @@ def load_single_pdf(file_path: str) -> List[Document]:
     pdf = fitz.open(file_path)
 
     if is_image_pdf(pdf):
-        try:
-            import pytesseract
-            from PIL import Image
-
-            # Default Windows Tesseract path if available
-            tesseract_default = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-            if os.path.exists(tesseract_default):
-                pytesseract.pytesseract.tesseract_cmd = tesseract_default
-
-            print(f"  [OCR SCANNING] {os.path.basename(file_path)} ({len(pdf)} pages)")
-            for page_num, page in enumerate(pdf):
-                print(f"    → Page {page_num+1}/{len(pdf)}", end="\r")
-                pix = page.get_pixmap(dpi=150)
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
-                text = pytesseract.image_to_string(img)
-                if text.strip():
-                    docs.append(Document(
-                        page_content=text,
-                        metadata={"source": file_path, "page": page_num + 1, "type": "ocr_scanned"}
-                    ))
-            print()
-        except Exception as e:
-            print(f"\nOCR Extraction Warning for {file_path}: {e}")
+        print(f"  [OCR SCANNING] {os.path.basename(file_path)} ({len(pdf)} pages)")
+        for page_num, page in enumerate(pdf):
+            print(f"    -> Page {page_num + 1}/{len(pdf)}", end="\r")
+            text = _ocr_page(page)
+            if text and len(text.strip()) >= 30:
+                docs.append(Document(
+                    page_content=text,
+                    metadata={"source": file_path, "page": page_num + 1, "type": "ocr_scanned"}
+                ))
+        print()
     else:
         for page_num, page in enumerate(pdf):
             text = page.get_text()
@@ -107,7 +136,11 @@ def load_document(file_path: str) -> List[Document]:
     return []
 
 
-def process_directory_incrementally(root_path: str = "./PDF_Data"):
+def process_directory_incrementally(
+    root_path: str = "./PDF_Data",
+    subject_filter: Optional[str] = None,
+    rebuild: bool = False,
+):
     """
     Incrementally ingest documents from folder into the ChromaDB vector database.
     Skips files that are already indexed in ChromaDB.
@@ -116,7 +149,12 @@ def process_directory_incrementally(root_path: str = "./PDF_Data"):
     db_manager = get_vector_store()
     embedder = get_embedding_model()
 
-    indexed_sources = db_manager.get_indexed_sources()
+    if rebuild:
+        deleted = db_manager.delete_records(subject=subject_filter)
+        scope = subject_filter or "all subjects"
+        print(f"Rebuild requested for {scope}: removed {deleted} vector records.")
+
+    indexed_sources = set() if rebuild else db_manager.get_indexed_sources()
     print(f"Already indexed files in database: {len(indexed_sources)}")
 
     supported_extensions = {".pdf", ".docx", ".pptx"}
@@ -125,7 +163,11 @@ def process_directory_incrementally(root_path: str = "./PDF_Data"):
         for file in files:
             ext = os.path.splitext(file)[1].lower()
             if ext in supported_extensions:
-                all_files.append(os.path.join(root, file))
+                file_path = os.path.join(root, file)
+                relative_parts = os.path.relpath(file_path, root_path).replace("\\", "/").split("/")
+                if subject_filter and (not relative_parts or relative_parts[0] != subject_filter):
+                    continue
+                all_files.append(file_path)
 
     total_files = len(all_files)
     print(f"Found {total_files} total supported documents in '{root_path}'.\n")

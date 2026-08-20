@@ -132,6 +132,15 @@ Place your subject folders inside `PDF_Data/` and run:
 python main.py --mode ingest
 ```
 
+To rebuild the vector index after replacing or re-OCRing documents, use the explicit rebuild mode. It deletes only matching ChromaDB records; files inside `PDF_Data/` are never deleted:
+```bash
+# Rebuild one subject
+python main.py --mode ingest --subject MSF --rebuild
+
+# Rebuild the complete PDF_Data index
+python main.py --mode ingest --rebuild
+```
+
 ### 4. Launch Application
 Start the Streamlit interface:
 ```bash
