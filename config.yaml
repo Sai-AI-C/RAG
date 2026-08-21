@@ -25,8 +25,16 @@ retrieval:
 
 llm:
   default_groq_model: "openai/gpt-oss-120b"
-  fast_groq_model: "openai/gpt-oss-20b"
-  mini_groq_model: "groq/compound-mini"
+  available_groq_models:
+    - "openai/gpt-oss-120b"
+    - "qwen/qwen3.6-27b"
+    - "openai/gpt-oss-20b"
+    - "groq/compound-mini"
+    - "groq/compound"
+    - "allam-2-7b"
+    - "meta-llama/llama-4-scout-17b-16e-instruct"
+    - "llama-3.3-70b-versatile"
+    - "llama-3.1-8b-instant"
   default_ollama_model: "llama3.2:latest"
   temperature: 0.0
 

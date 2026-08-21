@@ -196,18 +196,24 @@ with st.sidebar:
 
     engine_options = []
     if groq_api_key:
-        engine_options.append("⚡ Auto (Groq Fast ➡️ Ollama Backup)")
-        engine_options.append("🚀 Groq Cloud (gpt-oss-120b)")
-        engine_options.append("🚀 Groq Cloud (gpt-oss-20b)")
-        engine_options.append("🚀 Groq Cloud (compound-mini)")
+        engine_options.append("⚡ Auto Cascading Pool (Rotates on Limit)")
+        engine_options.append("🚀 OpenAI GPT-OSS 120B (openai/gpt-oss-120b)")
+        engine_options.append("🚀 Qwen 3.6 27B (qwen/qwen3.6-27b)")
+        engine_options.append("🚀 OpenAI GPT-OSS 20B (openai/gpt-oss-20b)")
+        engine_options.append("🚀 Groq Compound Mini (groq/compound-mini)")
+        engine_options.append("🚀 Groq Compound (groq/compound)")
+        engine_options.append("🚀 Allam 2 7B (allam-2-7b)")
+        engine_options.append("🚀 Llama 4 Scout 17B (meta-llama/llama-4-scout-17b-16e-instruct)")
+        engine_options.append("🚀 Llama 3.3 70B (llama-3.3-70b-versatile)")
+        engine_options.append("🚀 Llama 3.1 8B (llama-3.1-8b-instant)")
     if ollama_online:
         engine_options.append("💻 Ollama Local (Unlimited)")
     elif not groq_api_key:
-        engine_options.append("⚡ Auto (Groq Cloud)")
+        engine_options.append("⚡ Auto Cascading Pool (Groq Cloud)")
 
     selected_engine = st.selectbox("AI Engine", engine_options, index=0, label_visibility="collapsed")
-    selected_ollama_model="llama3.2:latest"
-    if "Ollama" in selected_engine or "Auto" in selected_engine:
+    selected_ollama_model = "llama3.2:latest"
+    if "Ollama" in selected_engine:
         if local_models:
             selected_ollama_model = st.selectbox("Local Model", local_models, index=0)
 
@@ -292,8 +298,8 @@ if user_query:
                 response_container=st.empty()
                 full_response=""
 
-                def handle_fallback():
-                    st.caption("⚡ *Groq cloud notice — switching engine.*")
+                def handle_fallback(current_model: str, next_model: str):
+                    st.caption(f"⚡ *Limit reached on `{current_model}` ➡️ automatically shifted to `{next_model}`.*")
 
                 # Stream response through unified client (handles connection safety internally)
                 for chunk in stream_llm_response(

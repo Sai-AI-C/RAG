@@ -114,18 +114,27 @@ def load_single_docx(file_path: str) -> List[Document]:
         if full_text.strip():
             return [Document(page_content=full_text, metadata={"source": file_path, "type": "docx"})]
     except Exception as e:
-        print(f"  ⚠️ DOCX media warning {os.path.basename(file_path)}: {e}")
+        try:
+            print(f"  [DOCX media warning] {os.path.basename(file_path)}: {e}")
+        except Exception:
+            pass
 
         try:
             recovered_text = load_xml_text()
             if recovered_text.strip():
-                print(f"  ✅ Recovered text from DOCX XML: {os.path.basename(file_path)}")
+                try:
+                    print(f"  [DOCX XML recovered] {os.path.basename(file_path)}")
+                except Exception:
+                    pass
                 return [Document(
                     page_content=recovered_text,
                     metadata={"source": file_path, "type": "docx_xml_recovered"},
                 )]
         except Exception as recovery_error:
-            print(f"  ⚠️ DOCX XML recovery failed {os.path.basename(file_path)}: {recovery_error}")
+            try:
+                print(f"  [DOCX XML recovery failed] {os.path.basename(file_path)}: {recovery_error}")
+            except Exception:
+                pass
 
     return []
 

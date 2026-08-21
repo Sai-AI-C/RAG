@@ -126,5 +126,19 @@ class TestOmniDocRAG(unittest.TestCase):
                 self.assertGreater(len(documents[0].page_content), 100)
 
 
+    def test_all_groq_models_defined(self):
+        from src.llm.llm_client import ALL_GROQ_MODELS
+        self.assertEqual(len(ALL_GROQ_MODELS), 9)
+        self.assertIn("openai/gpt-oss-120b", ALL_GROQ_MODELS)
+        self.assertIn("llama-3.3-70b-versatile", ALL_GROQ_MODELS)
+        self.assertIn("meta-llama/llama-4-scout-17b-16e-instruct", ALL_GROQ_MODELS)
+        self.assertIn("qwen/qwen3.6-27b", ALL_GROQ_MODELS)
+        self.assertIn("openai/gpt-oss-20b", ALL_GROQ_MODELS)
+        self.assertIn("llama-3.1-8b-instant", ALL_GROQ_MODELS)
+        self.assertIn("groq/compound-mini", ALL_GROQ_MODELS)
+        self.assertIn("groq/compound", ALL_GROQ_MODELS)
+        self.assertIn("allam-2-7b", ALL_GROQ_MODELS)
+
+
 if __name__ == "__main__":
     unittest.main()
