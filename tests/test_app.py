@@ -3,6 +3,8 @@ Unit and Integration tests for OmniDoc-RAG
 """
 
 import unittest
+import os
+from src.ingestion.loader import load_single_docx
 from src.retrieval.retriever import expand_query, get_related_subjects, is_context_relevant, is_garbled_ocr
 from src.utils.helpers import load_app_config, is_short_query, SUBJECT_METADATA, SUBJECT_SCOPE_CONTEXT
 from src.llm.llm_client import is_ollama_online
@@ -111,6 +113,17 @@ class TestOmniDocRAG(unittest.TestCase):
         # Must return boolean and never raise an unhandled exception
         online = is_ollama_online(timeout=0.2)
         self.assertIsInstance(online, bool)
+
+    def test_corrupt_docx_media_does_not_discard_text(self):
+        paths = [
+            "PDF_Data/Data structure/DS UNIT Ill.docx",
+            "PDF_Data/Data structure/DS UNIT IV(2).docx",
+        ]
+        for path in paths:
+            if os.path.exists(path):
+                documents = load_single_docx(path)
+                self.assertTrue(documents)
+                self.assertGreater(len(documents[0].page_content), 100)
 
 
 if __name__ == "__main__":

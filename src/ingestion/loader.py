@@ -1,5 +1,7 @@
 import os
 import io
+import zipfile
+import xml.etree.ElementTree as ET
 from typing import List, Set, Optional
 import fitz  # PyMuPDF
 import numpy as np
@@ -90,7 +92,21 @@ def load_single_pdf(file_path: str) -> List[Document]:
 
 
 def load_single_docx(file_path: str) -> List[Document]:
-    """Extract text from DOCX file."""
+    """Extract DOCX text, tolerating corrupt embedded images or other media."""
+    def load_xml_text() -> str:
+        namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        qualified_text = f"{{{namespace}}}t"
+        with zipfile.ZipFile(file_path) as archive:
+            document_xml = archive.read("word/document.xml")
+        root = ET.fromstring(document_xml)
+        blocks = []
+        for element in root.iter():
+            if element.tag == f"{{{namespace}}}p":
+                text = "".join(node.text or "" for node in element.iter(qualified_text)).strip()
+                if text:
+                    blocks.append(text)
+        return "\n".join(blocks)
+
     try:
         import docx
         doc = docx.Document(file_path)
@@ -98,7 +114,19 @@ def load_single_docx(file_path: str) -> List[Document]:
         if full_text.strip():
             return [Document(page_content=full_text, metadata={"source": file_path, "type": "docx"})]
     except Exception as e:
-        print(f"  ⚠️ Skipping unreadable DOCX {os.path.basename(file_path)}: {e}")
+        print(f"  ⚠️ DOCX media warning {os.path.basename(file_path)}: {e}")
+
+        try:
+            recovered_text = load_xml_text()
+            if recovered_text.strip():
+                print(f"  ✅ Recovered text from DOCX XML: {os.path.basename(file_path)}")
+                return [Document(
+                    page_content=recovered_text,
+                    metadata={"source": file_path, "type": "docx_xml_recovered"},
+                )]
+        except Exception as recovery_error:
+            print(f"  ⚠️ DOCX XML recovery failed {os.path.basename(file_path)}: {recovery_error}")
+
     return []
 
 
