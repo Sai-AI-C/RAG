@@ -1,8 +1,9 @@
 import os
 import uuid
 import zipfile
+import re
+import shutil
 from typing import List, Set, Dict, Any, Optional
-import chromadb
 import numpy as np
 from langchain_core.documents import Document
 from src.utils.helpers import load_app_config
@@ -10,25 +11,42 @@ from src.utils.helpers import load_app_config
 _VECTOR_STORE_INSTANCE = None
 
 
-def ensure_vector_db_ready(persist_dir: str = "./pdf_db/chromadb", zip_path: str = "./PDF_db.zip") -> bool:
+def ensure_vector_db_ready(persist_dir: str = "./pdf_db/chromadb", zip_path: str = "./pdf_db.zip") -> bool:
     """
     Ensure the vector database exists locally. If absent, attempts extraction from local zip
-    or download from cloud URL (for Streamlit Cloud deployments).
+    or download from cloud URL (for Streamlit Cloud and HuggingFace Spaces deployments).
     """
-    if os.path.exists(persist_dir) and any(os.scandir(persist_dir)):
+    sqlite_path = os.path.join(persist_dir, "chroma.sqlite3")
+    if os.path.exists(sqlite_path) and os.path.getsize(sqlite_path) > 0:
         return True
 
-    # Attempt 1: Extract from local zip if present
-    if os.path.exists(zip_path):
-        print(f"📦 Unzipping local database package from {zip_path}...")
-        try:
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(".")
-            if os.path.exists(persist_dir):
-                print("✅ Vector database extracted successfully.")
-                return True
-        except Exception as e:
-            print(f"Extraction error: {e}")
+    # Attempt 1: Extract from local zip if present (case-insensitive search for Linux)
+    candidate_zips = [
+        zip_path,
+        "./pdf_db.zip",
+        "./PDF_db.zip",
+        "./PDF_DB.zip",
+        "pdf_db.zip",
+        "PDF_db.zip",
+        "PDF_DB.zip",
+        "../pdf_db.zip",
+        "../PDF_db.zip",
+    ]
+
+    for czip in candidate_zips:
+        if os.path.exists(czip) and os.path.getsize(czip) > 1000:
+            print(f"📦 Unzipping local database package from {czip}...")
+            try:
+                with zipfile.ZipFile(czip, "r") as zf:
+                    zf.extractall(".")
+                if not os.path.exists(persist_dir) and os.path.exists("./chromadb"):
+                    os.makedirs("./pdf_db", exist_ok=True)
+                    shutil.move("./chromadb", "./pdf_db/chromadb")
+                if os.path.exists(sqlite_path) and os.path.getsize(sqlite_path) > 0:
+                    print("✅ Vector database extracted successfully.")
+                    return True
+            except Exception as e:
+                print(f"Extraction error for {czip}: {e}")
 
     # Attempt 2: Download from VECTOR_DB_URL if defined (Streamlit Cloud secret or env)
     cloud_url = os.getenv("VECTOR_DB_URL", "")
@@ -40,23 +58,52 @@ def ensure_vector_db_ready(persist_dir: str = "./pdf_db/chromadb", zip_path: str
         pass
 
     if cloud_url:
-        print("🌐 Downloading knowledge base from cloud storage...")
+        print("🌐 Downloading vector database package from cloud storage...")
+        target_zip = "./pdf_db.zip"
         try:
             if "drive.google.com" in cloud_url:
-                import gdown
-                gdown.download(cloud_url, zip_path, quiet=False, fuzzy=True)
+                match = re.search(r"/d/([a-zA-Z0-9_-]+)", cloud_url) or re.search(r"id=([a-zA-Z0-9_-]+)", cloud_url)
+                file_id = match.group(1) if match else None
+
+                downloaded = False
+                try:
+                    import gdown
+                    if file_id:
+                        gdown.download(id=file_id, output=target_zip, quiet=False)
+                    else:
+                        gdown.download(cloud_url, target_zip, quiet=False)
+                    if os.path.exists(target_zip) and os.path.getsize(target_zip) > 1000:
+                        downloaded = True
+                except Exception:
+                    pass
+
+                if not downloaded and file_id:
+                    import requests
+                    direct_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
+                    resp = requests.get(direct_url, stream=True, timeout=180)
+                    with open(target_zip, "wb") as f:
+                        for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                f.write(chunk)
+                    if os.path.exists(target_zip) and os.path.getsize(target_zip) > 1000:
+                        downloaded = True
             else:
                 import requests
-                resp = requests.get(cloud_url, stream=True, timeout=120)
-                with open(zip_path, "wb") as f:
+                resp = requests.get(cloud_url, stream=True, timeout=180)
+                with open(target_zip, "wb") as f:
                     for chunk in resp.iter_content(chunk_size=1024 * 1024):
                         if chunk:
                             f.write(chunk)
 
-            if os.path.exists(zip_path):
-                with zipfile.ZipFile(zip_path, "r") as zf:
+            if os.path.exists(target_zip) and os.path.getsize(target_zip) > 1000:
+                with zipfile.ZipFile(target_zip, "r") as zf:
                     zf.extractall(".")
-                return True
+                if not os.path.exists(persist_dir) and os.path.exists("./chromadb"):
+                    os.makedirs("./pdf_db", exist_ok=True)
+                    shutil.move("./chromadb", "./pdf_db/chromadb")
+                if os.path.exists(sqlite_path) and os.path.getsize(sqlite_path) > 0:
+                    print("✅ Cloud database downloaded and extracted successfully.")
+                    return True
         except Exception as e:
             print(f"Cloud download failed: {e}")
 
@@ -77,18 +124,29 @@ class VectorStoreManager:
         try:
             ensure_vector_db_ready(self.persist_dir)
             os.makedirs(self.persist_dir, exist_ok=True)
-            self.client = chromadb.PersistentClient(path=self.persist_dir)
+            import chromadb
+            from chromadb.config import Settings
+            settings = Settings(
+                anonymized_telemetry=False,
+                is_persistent=True,
+                allow_reset=True
+            )
+            self.client = chromadb.PersistentClient(path=self.persist_dir, settings=settings)
             self.collection = self.client.get_or_create_collection(
                 name=self.collection_name,
                 metadata={"description": "PDF embedding document for RAG"}
             )
-            print(f"ChromaDB ready: collection='{self.collection_name}', items={self.collection.count()}")
+            count = self.collection.count()
+            print(f"ChromaDB ready: collection='{self.collection_name}', items={count}")
         except Exception as e:
-            print(f"Error initializing ChromaDB at {self.persist_dir}: {e}")
-            raise
+            print(f"Warning: ChromaDB initialization at {self.persist_dir}: {e}")
+            self.client = None
+            self.collection = None
 
     def get_indexed_sources(self) -> Set[str]:
         """Fetch all unique source file paths currently stored in the collection."""
+        if not self.collection:
+            return set()
         try:
             indexed_sources = set()
             offset = 0
@@ -113,6 +171,8 @@ class VectorStoreManager:
 
     def delete_records(self, subject: Optional[str] = None) -> int:
         """Delete indexed records only; source documents on disk are never touched."""
+        if not self.collection:
+            return 0
         try:
             deleted = 0
             offset = 0
@@ -138,6 +198,8 @@ class VectorStoreManager:
 
     def add_documents(self, documents: List[Document], embeddings: np.ndarray, batch_size: int = 500):
         """Add documents and embeddings in batches."""
+        if not self.collection:
+            raise RuntimeError("ChromaDB collection is not initialized.")
         if len(documents) != len(embeddings):
             raise ValueError("Number of documents must match number of embeddings")
         if not documents:
@@ -176,6 +238,8 @@ class VectorStoreManager:
         where_document: Optional[Dict[str, Any]] = None
     ) -> List[str]:
         """Query documents by vector similarity with dimensional safety."""
+        if not self.collection:
+            return []
         try:
             # Flatten or format query_embeddings to ChromaDB's expected List[List[float]]
             if isinstance(query_embedding, np.ndarray):
@@ -183,14 +247,11 @@ class VectorStoreManager:
 
             if isinstance(query_embedding, list):
                 if len(query_embedding) > 0 and isinstance(query_embedding[0], list):
-                    # Already 2D list: [[0.1, ...]]
                     if len(query_embedding[0]) > 0 and isinstance(query_embedding[0][0], list):
-                        # Was 3D list: [[[0.1, ...]]] -> take first 2D element
                         formatted_embeddings = query_embedding[0]
                     else:
                         formatted_embeddings = query_embedding
                 else:
-                    # 1D list: [0.1, ...] -> wrap to 2D: [[0.1, ...]]
                     formatted_embeddings = [query_embedding]
             else:
                 formatted_embeddings = [[float(x) for x in query_embedding]]
@@ -212,27 +273,28 @@ class VectorStoreManager:
             return []
 
 
-def get_vector_store() -> VectorStoreManager:
-    """Singleton getter for VectorStoreManager."""
+def get_vector_store() -> Optional[VectorStoreManager]:
+    """Singleton getter for VectorStoreManager with safe lazy initialization."""
     global _VECTOR_STORE_INSTANCE
     if _VECTOR_STORE_INSTANCE is None:
-        cfg = load_app_config()
-        p_dir = cfg.get("database", {}).get("persist_directory", "./pdf_db/chromadb")
-        c_name = cfg.get("database", {}).get("collection_name", "Document__C")
-        _VECTOR_STORE_INSTANCE = VectorStoreManager(persist_dir=p_dir, collection_name=c_name)
+        try:
+            cfg = load_app_config()
+            p_dir = cfg.get("database", {}).get("persist_directory", "./pdf_db/chromadb")
+            c_name = cfg.get("database", {}).get("collection_name", "Document__C")
+            _VECTOR_STORE_INSTANCE = VectorStoreManager(persist_dir=p_dir, collection_name=c_name)
+        except Exception as e:
+            print(f"Failed to initialize VectorStoreManager: {e}")
+            return None
     return _VECTOR_STORE_INSTANCE
 
 
 def get_subject_counts() -> Dict[str, int]:
-    """Return count of document chunks indexed for each subject."""
-    manager = get_vector_store()
+    """Return count of document chunks indexed (fast O(1) total count)."""
     try:
-        results = manager.collection.get(include=["metadatas"])
-        counts = {}
-        for m in results.get("metadatas", []):
-            if m and "subject" in m:
-                subj = m["subject"]
-                counts[subj] = counts.get(subj, 0) + 1
-        return counts
+        manager = get_vector_store()
+        if not manager or not manager.collection:
+            return {}
+        total = manager.collection.count()
+        return {"Total": total} if total > 0 else {}
     except Exception:
         return {}

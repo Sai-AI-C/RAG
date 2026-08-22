@@ -234,17 +234,19 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
             where_clause = {"subject": {"$in": targets}}
 
     # 1. Semantic search — fetch k+6 to compensate for garbled chunks that will be filtered
-    sem_docs = db_manager.query_similarity(
-        query_embedding=query_embedding,
-        n_results=k + 6,
-        where=where_clause
-    )
+    sem_docs = []
+    if db_manager:
+        sem_docs = db_manager.query_similarity(
+            query_embedding=query_embedding,
+            n_results=k + 6,
+            where=where_clause
+        )
 
     # 2. Safe keyword search (ONLY for non-abbreviation queries with length >= 4)
     # Short substrings like "DA" or "CN" match random substrings inside words and OCR noise!
     kw_docs = []
     raw_query = query.strip()
-    if len(raw_query) >= 4 and not is_short_query(raw_query):
+    if db_manager and len(raw_query) >= 4 and not is_short_query(raw_query):
         keyword_queries = [raw_query]
         subject_keyword_queries = [
             SUBJECT_METADATA.get(subject_filter, {}).get("title", subject_filter),

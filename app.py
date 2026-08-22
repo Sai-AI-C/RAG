@@ -119,8 +119,11 @@ with st.sidebar:
         switch_subject(st.session_state.selected_subject)
         st.rerun()
 
-    subj_counts=get_subject_counts()
-    total_docs=sum(subj_counts.values()) if subj_counts else 0
+    try:
+        subj_counts = get_subject_counts()
+        total_docs = sum(subj_counts.values()) if subj_counts else 0
+    except Exception:
+        total_docs = 0
     col_cnt.markdown(f"<div style='text-align:right; font-size:0.75rem; color:#94a3b8; padding-top:6px;'>{total_docs} Chunks</div>", unsafe_allow_html=True)
 
     st.divider()
