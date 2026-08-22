@@ -14,7 +14,7 @@ except ImportError:
 from src.prompts.prompt_templates import PROMPT_TEMPLATE
 from src.utils.helpers import load_app_config, get_groq_api_key
 
-# Complete list of Groq models (ordered by reliability & intelligence)
+# Complete list of Groq models (ordered by reliability & capability)
 ALL_GROQ_MODELS = [
     "openai/gpt-oss-120b",
     "qwen/qwen3.6-27b",
@@ -103,7 +103,7 @@ def create_ollama_client(
 def _extract_selected_groq_model(selected_engine: str) -> Optional[str]:
     """Extract model ID if explicitly chosen in the dropdown."""
     for m in ALL_GROQ_MODELS:
-        if m in selected_engine or f"({m})" in selected_engine:
+        if m in selected_engine:
             return m
     return None
 
@@ -113,7 +113,7 @@ def stream_llm_response(
     context: str,
     question: str,
     chat_history: str = "",
-    selected_engine: str = "⚡ Auto Cascading Pool (Rotates across all models)",
+    selected_engine: str = "⚡ Auto Cascading Pool (Rotates on Limit)",
     local_model: str = "llama3.2:latest",
     on_fallback: Optional[Callable[[str, str], None]] = None
 ) -> Generator[str, None, None]:
@@ -134,15 +134,29 @@ def stream_llm_response(
     }
 
     groq_api_key = get_groq_api_key()
-    groq_succeeded = False
     last_groq_error = ""
 
-    # 1. ATTEMPT GROQ CLOUD CASCADE POOL
-    if ("Groq" in selected_engine or "Auto" in selected_engine or "Cascade" in selected_engine or "Pool" in selected_engine) and groq_api_key and ChatGroq:
+    # Check if explicit local Ollama was chosen without Auto
+    is_pure_ollama = ("Ollama" in selected_engine) and ("Auto" not in selected_engine)
+
+    # 1. ATTEMPT GROQ CLOUD (Default for all Cloud models and Auto Cascading Pool)
+    if not is_pure_ollama:
+        if not groq_api_key:
+            yield (
+                "⚠️ **Groq API Key Required**\n\n"
+                "To enable cloud AI inference:\n"
+                "1. On **Streamlit Cloud / Spaces**: Add `GROQ_API_KEY = \"gsk_...\"` in Secrets / Environment Variables.\n"
+                "2. Locally: Add `GROQ_API_KEY=gsk_...` in `.env` file, or enter it in the sidebar."
+            )
+            return
+
+        if not ChatGroq:
+            yield "⚠️ **Error:** `langchain-groq` package is not installed."
+            return
+
         # Build ordered queue of models to try
         explicit_model = _extract_selected_groq_model(selected_engine)
         if explicit_model:
-            # Put explicit model first, followed by the rest as fallback
             model_queue = [explicit_model] + [m for m in ALL_GROQ_MODELS if m != explicit_model]
         else:
             model_queue = list(ALL_GROQ_MODELS)
@@ -166,12 +180,11 @@ def stream_llm_response(
                         yield piece
 
                 if chunk_received:
-                    groq_succeeded = True
                     return
 
             except Exception as groq_err:
                 last_groq_error = str(groq_err)
-                next_model = model_queue[idx + 1] if idx + 1 < len(model_queue) else "Ollama Local"
+                next_model = model_queue[idx + 1] if idx + 1 < len(model_queue) else "Local Ollama"
 
                 # Notify UI about automatic shift to next model
                 if on_fallback:
@@ -180,13 +193,11 @@ def stream_llm_response(
                     except Exception:
                         pass
 
-                # Continue loop to try the next Groq model in the pool
+                # Try the next model in the cascade pool
                 continue
 
-    # 2. ATTEMPT LOCAL OLLAMA (If all Groq models hit limits or Ollama selected)
-    ollama_available = is_ollama_online()
-
-    if ollama_available:
+    # 2. ATTEMPT LOCAL OLLAMA (If explicitly chosen, or if all 9 Groq models exhausted)
+    if is_ollama_online():
         try:
             llm_ollama = ChatOllama(model=local_model, temperature=temp)
             chain_ollama = prompt | llm_ollama
@@ -199,23 +210,21 @@ def stream_llm_response(
             yield f"⚠️ **Local Ollama Error:** {ollama_err}\n\nPlease ensure model `{local_model}` is pulled (`ollama pull {local_model}`)."
             return
 
-    # 3. NO ENGINE AVAILABLE -> CLEAR GUIDANCE
-    if not groq_api_key:
-        yield (
-            "⚠️ **Groq API Key Required**\n\n"
-            "To get instant AI answers across all 9 models:\n"
-            "1. On **Streamlit Cloud / Spaces**: Add `GROQ_API_KEY = \"gsk_...\"` in Secrets / Environment Variables.\n"
-            "2. Locally: Add `GROQ_API_KEY=gsk_...` in `.env` or start local Ollama with `ollama serve`."
-        )
-    elif last_groq_error:
-        yield (
-            f"⚠️ **All Groq Models Limit Reached**\n\n`{last_groq_error}`\n\n"
-            "The system cycled through all available Groq models. Please wait 1 minute for your Groq rate limits to refresh."
-        )
-    else:
+    # 3. IF PURE OLLAMA WAS CHOSEN BUT OLLAMA IS NOT ONLINE
+    if is_pure_ollama:
         yield (
             "⚠️ **Local Ollama Not Running**\n\n"
             "Could not connect to Ollama at `http://localhost:11434`.\n\n"
-            "- If running locally: Start Ollama with `ollama serve`.\n"
-            "- If in the cloud: Add `GROQ_API_KEY` to enable instant cloud inference."
+            "- If running locally: Start Ollama with `ollama serve` in a terminal.\n"
+            "- If in the cloud: Select **⚡ Auto Cascading Pool** in the sidebar."
         )
+        return
+
+    # 4. ALL 9 GROQ MODELS EXHAUSTED AND OLLAMA OFFLINE
+    if last_groq_error:
+        yield (
+            f"⚠️ **All 9 Groq Models Temporarily Rate-Limited**\n\n`{last_groq_error}`\n\n"
+            "The system cycled through all 9 available models. Please wait 1 minute for your Groq rate limits to refresh."
+        )
+    else:
+        yield "⚠️ **No AI Engine Available:** Please check your `GROQ_API_KEY` or start local Ollama."
