@@ -43,15 +43,20 @@ class SubjectInfo(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Pre-warm the vector store and embedding model on startup."""
+    """Memory-safe startup for low-RAM cloud instances."""
+    import gc
+    import os
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
     try:
-        from src.vectordb.vector_store import get_vector_store
-        from src.embeddings.embedder import get_embedding_model
-        get_vector_store()
-        get_embedding_model()
-        print("OmniDoc-RAG API ready.")
-    except Exception as e:
-        print(f"Startup warning: {e}")
+        import torch
+        torch.set_num_threads(1)
+        torch.set_grad_enabled(False)
+    except Exception:
+        pass
+    gc.collect()
+    print("OmniDoc-RAG API ready (low-memory mode).")
     yield
 
 
