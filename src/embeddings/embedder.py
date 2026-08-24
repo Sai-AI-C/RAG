@@ -1,6 +1,19 @@
 import os
 from typing import List, Union
 import numpy as np
+
+# Memory optimizations for low-RAM cloud containers
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+try:
+    import torch
+    torch.set_num_threads(1)
+    torch.set_grad_enabled(False)
+except Exception:
+    pass
+
 from sentence_transformers import SentenceTransformer
 from src.utils.helpers import load_app_config
 
