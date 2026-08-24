@@ -1,0 +1,211 @@
+"""
+OmniDoc-RAG FastAPI Backend
+Production-grade REST API with SSE streaming for the RAG pipeline.
+"""
+
+import os
+import json
+import asyncio
+from typing import Optional, AsyncGenerator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+
+from src.retrieval.retriever import retrieve_context, is_context_relevant
+from src.llm.llm_client import stream_llm_response, ALL_GROQ_MODELS
+from src.vectordb.vector_store import get_subject_counts
+from src.utils.helpers import SUBJECT_METADATA, SIDEBAR_CATEGORIES
+
+
+# ─── Pydantic Models ──────────────────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=2000)
+    subject: str = Field(default="All Subjects")
+    chat_history: str = Field(default="")
+    engine: str = Field(default="Auto Cascading Pool")
+
+
+class SubjectInfo(BaseModel):
+    key: str
+    title: str
+    category: str
+    icon: str
+    type: str
+
+
+# ─── Lifespan (startup / shutdown) ────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Pre-warm the vector store and embedding model on startup."""
+    try:
+        from src.vectordb.vector_store import get_vector_store
+        from src.embeddings.embedder import get_embedding_model
+        get_vector_store()
+        get_embedding_model()
+        print("OmniDoc-RAG API ready.")
+    except Exception as e:
+        print(f"Startup warning: {e}")
+    yield
+
+
+# ─── App Initialization ───────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="OmniDoc-RAG API",
+    description="Academic RAG Assistant — Production FastAPI Backend",
+    version="2.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ─── Health Check ─────────────────────────────────────────────────────────────
+
+@app.get("/api/health", tags=["System"])
+async def health_check():
+    """Returns system status and basic statistics."""
+    try:
+        counts = get_subject_counts()
+        total = sum(counts.values()) if counts else 0
+    except Exception:
+        total = 0
+
+    groq_key_set = bool(os.getenv("GROQ_API_KEY", ""))
+    try:
+        import streamlit as st
+        if not groq_key_set and "GROQ_API_KEY" in st.secrets:
+            groq_key_set = True
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "total_chunks": total,
+        "subjects": len(SUBJECT_METADATA),
+        "groq_configured": groq_key_set,
+        "available_models": ALL_GROQ_MODELS,
+    }
+
+
+# ─── Subjects Endpoint ────────────────────────────────────────────────────────
+
+@app.get("/api/subjects", tags=["Subjects"])
+async def get_subjects():
+    """Returns all subjects grouped by category."""
+    categories = {}
+    for cat_label, subject_keys in SIDEBAR_CATEGORIES.items():
+        subjects_in_cat = []
+        for key in subject_keys:
+            meta = SUBJECT_METADATA.get(key, {})
+            subjects_in_cat.append({
+                "key": key,
+                "title": meta.get("title", key),
+                "icon": meta.get("icon", "📚"),
+                "type": meta.get("type", "Notes"),
+            })
+        categories[cat_label] = subjects_in_cat
+    return {"categories": categories}
+
+
+# ─── Chat Streaming Endpoint ──────────────────────────────────────────────────
+
+@app.post("/api/chat", tags=["Chat"])
+async def chat_stream(req: ChatRequest):
+    """
+    Streams token-by-token AI responses via Server-Sent Events (SSE).
+    Automatically cascades through all 9 Groq models on rate limits.
+    """
+    async def event_generator() -> AsyncGenerator[str, None]:
+        loop = asyncio.get_event_loop()
+
+        # Step 1: Retrieve context
+        try:
+            context = await loop.run_in_executor(
+                None,
+                lambda: retrieve_context(query=req.question, subject_filter=req.subject)
+            )
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            return
+
+        # Step 2: Relevance gate
+        is_relevant, fallback_msg = is_context_relevant(
+            query=req.question,
+            context=context,
+            active_subject=req.subject
+        )
+
+        if not is_relevant:
+            yield f"data: {json.dumps({'type': 'token', 'content': fallback_msg})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+
+        # Step 3: Stream LLM response
+        shifts = []
+
+        def on_model_shift(current: str, next_model: str):
+            shifts.append({"from": current, "to": next_model})
+
+        def blocking_stream():
+            return list(stream_llm_response(
+                active_subject=req.subject,
+                context=context,
+                question=req.question,
+                chat_history=req.chat_history,
+                selected_engine=req.engine,
+                on_fallback=on_model_shift,
+            ))
+
+        try:
+            chunks = await loop.run_in_executor(None, blocking_stream)
+            for chunk in chunks:
+                if chunk:
+                    yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+
+            if shifts:
+                yield f"data: {json.dumps({'type': 'shift_notice', 'shifts': shifts})}\n\n"
+
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+# ─── Serve Frontend ───────────────────────────────────────────────────────────
+
+frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
+if os.path.exists(frontend_path):
+    app.mount("/static", StaticFiles(directory=frontend_path), name="static")
+
+    @app.get("/", include_in_schema=False)
+    async def serve_frontend():
+        return FileResponse(os.path.join(frontend_path, "index.html"))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False)
