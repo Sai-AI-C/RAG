@@ -30,7 +30,7 @@ from src.vectordb.vector_store import get_subject_counts
 from src.utils.helpers import SUBJECT_METADATA, SIDEBAR_CATEGORIES, get_groq_api_key, normalize_subject_name
 
 
-# ─── Pydantic Models ──────────────────────────────────────────────────────────
+#  Pydantic Models 
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=4000)
@@ -40,7 +40,7 @@ class ChatRequest(BaseModel):
     custom_api_key: Optional[str] = Field(default="")
 
 
-# ─── Lifespan ─────────────────────────────────────────────────────────────────
+#  Lifespan 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-# ─── App Initialization ───────────────────────────────────────────────────────
+#  App Initialization 
 
 app = FastAPI(
     title="OmniDoc-RAG API",
@@ -74,7 +74,7 @@ app.add_middleware(
 )
 
 
-# ─── Health Check ─────────────────────────────────────────────────────────────
+#  Health Check 
 
 @app.get("/api/health", tags=["System"])
 async def health_check():
@@ -96,7 +96,7 @@ async def health_check():
     }
 
 
-# ─── Subjects Endpoint ────────────────────────────────────────────────────────
+#  Subjects Endpoint 
 
 @app.get("/api/subjects", tags=["Subjects"])
 async def get_subjects():
@@ -116,7 +116,7 @@ async def get_subjects():
     return {"categories": categories}
 
 
-# ─── Chat Streaming Endpoint ──────────────────────────────────────────────────
+#  Chat Streaming Endpoint 
 
 @app.post("/api/chat", tags=["Chat"])
 async def chat_stream(req: ChatRequest, request: Request):
@@ -203,7 +203,7 @@ async def chat_stream(req: ChatRequest, request: Request):
     )
 
 
-# ─── Serve Frontend ───────────────────────────────────────────────────────────
+#  Serve Frontend 
 
 frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
 if os.path.exists(frontend_path):
