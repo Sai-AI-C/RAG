@@ -47,18 +47,32 @@ DEFAULT_CONFIG = {
 
 
 def normalize_subject_name(subject: Optional[str]) -> Optional[str]:
-    """Return the canonical subject key regardless of case or whitespace."""
+    """Return the canonical database subject key regardless of case, title or alias."""
     if subject is None:
         return None
 
     raw = subject.strip()
     if not raw:
         return raw
-    if raw.lower() == "all subjects":
+    if raw.lower() in ("all subjects", "all", "global"):
         return "All Subjects"
 
-    for canonical in list(SUBJECT_METADATA.keys()) + list(SUBJECT_ABBREV.keys()):
+    # 1. Exact match on database key
+    for canonical in SUBJECT_METADATA.keys():
         if canonical.lower() == raw.lower():
+            return canonical
+
+    # 2. Match on human-readable title
+    for key, meta in SUBJECT_METADATA.items():
+        title = meta.get("title", "")
+        if title.lower() == raw.lower():
+            return key
+        if title.lower().replace("&", "and") == raw.lower().replace("&", "and"):
+            return key
+
+    # 3. Match on abbreviations / aliases
+    for abbrev, canonical in SUBJECT_ABBREV.items():
+        if abbrev.lower() == raw.lower():
             return canonical
 
     return raw
