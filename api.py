@@ -1,18 +1,19 @@
 """
 OmniDoc-RAG FastAPI Backend
-Production-grade REST API with SSE streaming for the RAG pipeline.
+Production-grade REST API with SSE streaming, health check, and static frontend hosting.
 """
 
 import os
+import gc
 import json
 import asyncio
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, List, Dict, Any
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 load_dotenv()
 
-# Memory limits for low-RAM cloud instances
+# Strict single-thread memory limits for 512MB RAM cloud containers
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -26,24 +27,24 @@ from pydantic import BaseModel, Field
 from src.retrieval.retriever import retrieve_context, is_context_relevant
 from src.llm.llm_client import stream_llm_response, ALL_GROQ_MODELS
 from src.vectordb.vector_store import get_subject_counts
-from src.utils.helpers import SUBJECT_METADATA, SIDEBAR_CATEGORIES, get_groq_api_key
+from src.utils.helpers import SUBJECT_METADATA, SIDEBAR_CATEGORIES, get_groq_api_key, normalize_subject_name
 
 
 # ─── Pydantic Models ──────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=2000)
+    question: str = Field(..., min_length=1, max_length=4000)
     subject: str = Field(default="All Subjects")
     chat_history: str = Field(default="")
     engine: str = Field(default="Auto Cascading Pool")
+    custom_api_key: Optional[str] = Field(default="")
 
 
-# ─── Lifespan (startup / shutdown) ────────────────────────────────────────────
+# ─── Lifespan ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Memory-safe startup for low-RAM cloud instances."""
-    import gc
     try:
         import torch
         torch.set_num_threads(1)
@@ -51,7 +52,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     gc.collect()
-    print("OmniDoc-RAG API ready (low-memory mode).")
+    print("OmniDoc-RAG API ready.")
     yield
 
 
@@ -84,13 +85,13 @@ async def health_check():
     except Exception:
         total = 0
 
-    groq_key_set = bool(get_groq_api_key())
+    groq_key = get_groq_api_key()
 
     return {
         "status": "ok",
         "total_chunks": total,
         "subjects": len(SUBJECT_METADATA),
-        "groq_configured": groq_key_set,
+        "groq_configured": bool(groq_key),
         "available_models": ALL_GROQ_MODELS,
     }
 
@@ -118,29 +119,39 @@ async def get_subjects():
 # ─── Chat Streaming Endpoint ──────────────────────────────────────────────────
 
 @app.post("/api/chat", tags=["Chat"])
-async def chat_stream(req: ChatRequest):
+async def chat_stream(req: ChatRequest, request: Request):
     """
     Streams token-by-token AI responses via Server-Sent Events (SSE).
-    Uses server's configured GROQ_API_KEY automatically.
+    Uses server's configured GROQ_API_KEY or header/custom key.
     """
+    # Key precedence: request payload custom key -> X-Groq-Api-Key header -> server env
+    header_key = request.headers.get("x-groq-api-key", "").strip()
+    active_key = req.custom_api_key.strip() or header_key or get_groq_api_key()
+
     async def event_generator() -> AsyncGenerator[str, None]:
         loop = asyncio.get_event_loop()
+        normalized_subj = normalize_subject_name(req.subject) or "All Subjects"
+
+        # Check API key before starting
+        if not active_key:
+            yield f"data: {json.dumps({'type': 'token', 'content': '⚠️ **Groq API Key Required:** Please configure `GROQ_API_KEY` in your environment or Settings modal.'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
 
         # Step 1: Retrieve context
         try:
             context = await loop.run_in_executor(
                 None,
-                lambda: retrieve_context(query=req.question, subject_filter=req.subject)
+                lambda: retrieve_context(query=req.question, subject_filter=normalized_subj)
             )
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'token', 'content': f'⚠️ Search notice: {str(e)}'})}\n\n"
             context = ""
 
         # Step 2: Relevance gate
         is_relevant, fallback_msg = is_context_relevant(
             query=req.question,
             context=context,
-            active_subject=req.subject
+            active_subject=normalized_subj
         )
 
         if not is_relevant:
@@ -155,8 +166,11 @@ async def chat_stream(req: ChatRequest):
             shifts.append({"from": current, "to": next_model})
 
         def blocking_stream():
+            # Temporarily ensure active_key is accessible by llm_client
+            if active_key and not os.getenv("GROQ_API_KEY"):
+                os.environ["GROQ_API_KEY"] = active_key
             return list(stream_llm_response(
-                active_subject=req.subject,
+                active_subject=normalized_subj,
                 context=context,
                 question=req.question,
                 chat_history=req.chat_history,
@@ -176,7 +190,7 @@ async def chat_stream(req: ChatRequest):
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'token', 'content': f'⚠️ AI response notice: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'content': f'⚠️ AI Generation Notice: {str(e)}'})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(
@@ -202,5 +216,6 @@ if os.path.exists(frontend_path):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False)
+    port = int(os.environ.get("PORT", 10000))
+    print(f"Starting OmniDoc-RAG on port {port}...")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
