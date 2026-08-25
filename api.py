@@ -9,17 +9,24 @@ import asyncio
 from typing import Optional, AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query
+from dotenv import load_dotenv
+load_dotenv()
+
+# Memory limits for low-RAM cloud instances
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from src.retrieval.retriever import retrieve_context, is_context_relevant
 from src.llm.llm_client import stream_llm_response, ALL_GROQ_MODELS
 from src.vectordb.vector_store import get_subject_counts
-from src.utils.helpers import SUBJECT_METADATA, SIDEBAR_CATEGORIES
+from src.utils.helpers import SUBJECT_METADATA, SIDEBAR_CATEGORIES, get_groq_api_key
 
 
 # ─── Pydantic Models ──────────────────────────────────────────────────────────
@@ -31,24 +38,12 @@ class ChatRequest(BaseModel):
     engine: str = Field(default="Auto Cascading Pool")
 
 
-class SubjectInfo(BaseModel):
-    key: str
-    title: str
-    category: str
-    icon: str
-    type: str
-
-
 # ─── Lifespan (startup / shutdown) ────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Memory-safe startup for low-RAM cloud instances."""
     import gc
-    import os
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
     try:
         import torch
         torch.set_num_threads(1)
@@ -89,13 +84,7 @@ async def health_check():
     except Exception:
         total = 0
 
-    groq_key_set = bool(os.getenv("GROQ_API_KEY", ""))
-    try:
-        import streamlit as st
-        if not groq_key_set and "GROQ_API_KEY" in st.secrets:
-            groq_key_set = True
-    except Exception:
-        pass
+    groq_key_set = bool(get_groq_api_key())
 
     return {
         "status": "ok",
@@ -132,7 +121,7 @@ async def get_subjects():
 async def chat_stream(req: ChatRequest):
     """
     Streams token-by-token AI responses via Server-Sent Events (SSE).
-    Automatically cascades through all 9 Groq models on rate limits.
+    Uses server's configured GROQ_API_KEY automatically.
     """
     async def event_generator() -> AsyncGenerator[str, None]:
         loop = asyncio.get_event_loop()
@@ -144,8 +133,8 @@ async def chat_stream(req: ChatRequest):
                 lambda: retrieve_context(query=req.question, subject_filter=req.subject)
             )
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-            return
+            yield f"data: {json.dumps({'type': 'token', 'content': f'⚠️ Search notice: {str(e)}'})}\n\n"
+            context = ""
 
         # Step 2: Relevance gate
         is_relevant, fallback_msg = is_context_relevant(
@@ -187,7 +176,8 @@ async def chat_stream(req: ChatRequest):
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'content': f'⚠️ AI response notice: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(
         event_generator(),

@@ -133,7 +133,7 @@
     }
     .welcome-icon { font-size: 56px; margin-bottom: 4px; }
     .welcome h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
-    .welcome p { color: var(--text-secondary); font-size: 14px; max-width: 380px; line-height: 1.6; }
+    .welcome p { color: var(--text-secondary); font-size: 14px; max-width: 440px; line-height: 1.6; }
     .sample-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
     .chip {
       padding: 8px 14px; border-radius: 20px; cursor: pointer; font-size: 12.5px;
@@ -143,7 +143,7 @@
     .chip:hover { background: var(--accent-glow); color: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
 
     /* ── Messages ── */
-    .msg { display: flex; gap: 10px; max-width: 820px; }
+    .msg { display: flex; gap: 10px; max-width: 840px; }
     .msg.user { flex-direction: row-reverse; align-self: flex-end; }
     .msg.ai { align-self: flex-start; }
     .avatar {
@@ -188,18 +188,6 @@
       background: var(--bg-panel);
       border-top: 1px solid var(--border-subtle);
     }
-    .api-key-row {
-      display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
-    }
-    .api-key-input {
-      flex: 1; padding: 8px 12px; border-radius: var(--radius-sm);
-      background: var(--bg-card); border: 1px solid var(--border-subtle);
-      color: var(--text-primary); font-family: inherit; font-size: 12px; outline: none;
-    }
-    .api-key-input::placeholder { color: var(--text-muted); }
-    .api-key-input:focus { border-color: var(--accent); }
-    .api-key-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
-
     .input-row { display: flex; gap: 10px; align-items: flex-end; }
     .input-box {
       flex: 1; min-height: 46px; max-height: 140px;
@@ -284,10 +272,6 @@
 
     <!-- Input -->
     <div class="input-area">
-      <div class="api-key-row">
-        <span class="api-key-label">🔑 Groq API Key:</span>
-        <input type="password" class="api-key-input" id="groqKeyInput" placeholder="gsk_... (paste your free Groq key)" />
-      </div>
       <div class="input-row">
         <textarea class="input-box" id="inputBox" rows="1" placeholder="Ask a question about your subject..."></textarea>
         <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send (Enter)">➤</button>
@@ -318,6 +302,7 @@
   async function loadSubjects() {
     try {
       const resp = await fetch("/api/subjects");
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       renderSidebar(data.categories);
     } catch (e) {
@@ -333,7 +318,7 @@
     const allBtn = document.createElement("button");
     allBtn.className = "subject-btn active";
     allBtn.innerHTML = `<span class="icon">🌐</span><span>All Subjects</span>`;
-    allBtn.onclick = () => selectSubject("All Subjects", "🌐");
+    allBtn.onclick = () => selectSubject("All Subjects", "🌐", "All Subjects");
     allBtn.id = "btn_All Subjects";
     container.appendChild(allBtn);
 
@@ -374,6 +359,7 @@
 
   function updateSampleChips(subjectKey) {
     const chips = document.getElementById("sampleChips");
+    if (!chips) return;
     chips.innerHTML = "";
     const samples = SAMPLES[subjectKey] || SAMPLES["All Subjects"];
     samples.forEach(q => {
@@ -406,7 +392,6 @@
     const question = inputBox.value.trim();
     if (!question) return;
 
-    const groqKey = document.getElementById("groqKeyInput").value.trim();
     const engine = document.getElementById("modelSelect").value;
 
     // Hide welcome state
@@ -414,7 +399,6 @@
     if (welcome) welcome.remove();
 
     // Add user message
-    const msgs = document.getElementById("messages");
     appendMessage("user", question, "👤");
     inputBox.value = "";
     autoResizeTextarea(inputBox);
@@ -436,13 +420,9 @@
         engine: engine,
       };
 
-      // Pass Groq key via header if entered
-      const headers = { "Content-Type": "application/json" };
-      if (groqKey) headers["X-Groq-Api-Key"] = groqKey;
-
       const resp = await fetch("/api/chat", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
 
@@ -468,7 +448,7 @@
             } else if (event.type === "done") {
               break;
             } else if (event.type === "error") {
-              fullResponse += `\n\n⚠️ Error: ${event.content}`;
+              fullResponse += `\n\n⚠️ ${event.content}`;
               renderAIMessage(aiMsgId, fullResponse);
             }
           } catch (_) {}
@@ -479,7 +459,7 @@
       chatHistory += `\nUser: ${question}\nAssistant: ${fullResponse}\n`;
 
     } catch (err) {
-      fullResponse = `⚠️ Connection error: ${err.message}`;
+      fullResponse = `⚠️ Server notice: ${err.message}. Please retry in a moment.`;
       renderAIMessage(aiMsgId, fullResponse);
     } finally {
       isStreaming = false;
