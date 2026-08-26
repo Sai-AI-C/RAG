@@ -223,6 +223,11 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
     4. Filters out garbled OCR noise and deduplicates chunks.
     """
     subject_filter = normalize_subject_name(subject_filter) or "All Subjects"
+    if re.search(
+        r"\b(all|each|every|complete|entire|step[- ]by[- ]step|experiments?)\b",
+        query.lower(),
+    ):
+        k = max(k, 24)
     search_query = expand_query(query, active_subject=subject_filter)
     raw_query = query.strip()
     db_manager = get_vector_store()

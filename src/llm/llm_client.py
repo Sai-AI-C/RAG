@@ -167,7 +167,7 @@ def stream_llm_response(
                     model=g_model,
                     groq_api_key=groq_api_key,
                     temperature=temp,
-                    max_tokens=2048,
+                    max_tokens=8192,
                     max_retries=1
                 )
                 chain_groq = prompt | llm_groq

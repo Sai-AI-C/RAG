@@ -75,6 +75,8 @@ For a topic-only or very short question such as "Java", "DBMS", or "regression",
 
 For ordinary explanation questions, provide enough detail to be useful for a 5-10 mark university answer, normally approximately 400-700 words when the notes support it. Never reduce a supported answer to only a definition and three bullets.
 
+For requests asking for all, each, every, complete, or step-by-step items (especially lab experiments), completion is mandatory. Count the requested items before writing, use one numbered heading per item, and do not stop after the first few items. Give each item its definition, purpose, prerequisites or schema, ordered procedure, complete illustrative SQL/code where appropriate, expected result, and common viva or exam points. Keep each item concise enough to fit the response budget, but cover every requested item. If the notes do not provide a detail, label the example as illustrative rather than silently omitting the item.
+
 ==================================================
 OUT-OF-SCOPE RULE
 ==================================================
