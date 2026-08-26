@@ -7,7 +7,7 @@ import os
 import gc
 import json
 import asyncio
-from typing import Optional, AsyncGenerator, List, Dict, Any
+from typing import Optional, AsyncGenerator
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -18,9 +18,9 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -144,8 +144,11 @@ async def chat_stream(req: ChatRequest, request: Request):
                 None,
                 lambda: retrieve_context(query=req.question, subject_filter=normalized_subj)
             )
-        except Exception as e:
-            context = ""
+        except Exception as exc:
+            print(f"Retrieval failed: {exc}")
+            yield f"data: {json.dumps({'type': 'token', 'content': '⚠️ Document search is temporarily unavailable. Please verify the vector database configuration and try again.'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
 
         # Step 2: Relevance gate
         is_relevant, fallback_msg = is_context_relevant(
@@ -180,6 +183,8 @@ async def chat_stream(req: ChatRequest, request: Request):
 
         try:
             chunks = await loop.run_in_executor(None, blocking_stream)
+            if not chunks:
+                yield f"data: {json.dumps({'type': 'token', 'content': '⚠️ The AI service returned no response. Please check the Groq API key and model availability.'})}\n\n"
             for chunk in chunks:
                 if chunk:
                     yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
