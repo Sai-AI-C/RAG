@@ -132,6 +132,9 @@ async def chat_stream(req: ChatRequest, request: Request):
         loop = asyncio.get_event_loop()
         normalized_subj = normalize_subject_name(req.subject) or "All Subjects"
 
+        # Start the SSE response immediately while model and database work runs.
+        yield ": connected\n\n"
+
         # Check API key before starting
         if not active_key:
             yield f"data: {json.dumps({'type': 'token', 'content': '⚠️ **Groq API Key Required:** Please configure `GROQ_API_KEY` in your environment or Settings modal.'})}\n\n"
@@ -139,11 +142,17 @@ async def chat_stream(req: ChatRequest, request: Request):
             return
 
         # Step 1: Retrieve context
+        retrieval_future = loop.run_in_executor(
+            None,
+            lambda: retrieve_context(query=req.question, subject_filter=normalized_subj)
+        )
         try:
-            context = await loop.run_in_executor(
-                None,
-                lambda: retrieve_context(query=req.question, subject_filter=normalized_subj)
-            )
+            while not retrieval_future.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(retrieval_future), timeout=5)
+                except asyncio.TimeoutError:
+                    yield ": retrieval-in-progress\n\n"
+            context = await retrieval_future
         except Exception as exc:
             print(f"Retrieval failed: {exc}")
             yield f"data: {json.dumps({'type': 'token', 'content': '⚠️ Document search is temporarily unavailable. Please verify the vector database configuration and try again.'})}\n\n"
@@ -181,8 +190,14 @@ async def chat_stream(req: ChatRequest, request: Request):
                 on_fallback=on_model_shift,
             ))
 
+        generation_future = loop.run_in_executor(None, blocking_stream)
         try:
-            chunks = await loop.run_in_executor(None, blocking_stream)
+            while not generation_future.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(generation_future), timeout=5)
+                except asyncio.TimeoutError:
+                    yield ": generation-in-progress\n\n"
+            chunks = await generation_future
             if not chunks:
                 yield f"data: {json.dumps({'type': 'token', 'content': '⚠️ The AI service returned no response. Please check the Groq API key and model availability.'})}\n\n"
             for chunk in chunks:
