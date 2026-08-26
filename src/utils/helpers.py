@@ -141,7 +141,7 @@ SUBJECT_METADATA = {
     "STM Notes": {"title": "Software Testing Methodologies", "category": "Management & Electives", "icon": "🧪", "type": "Notes"},
     "Semantic Web": {"title": "Semantic Web", "category": "Management & Electives", "icon": "🕸️", "type": "Notes"},
     "Total Quality Management": {"title": "Total Quality Management", "category": "Management & Electives", "icon": "🎯", "type": "Notes"},
-    "WP Notes": {"title": "Web Programming", "category": "Management & Electives", "icon": "🌐", "type": "Notes"},
+    "WP Notes": {"title": "Web Programming", "category": "Management & Electives", "icon": "🖥️", "type": "Notes"},
     "ACS Lab": {"title": "Advanced Communication Systems Lab", "category": "Management & Electives", "icon": "📡", "type": "Lab"},
 }
 

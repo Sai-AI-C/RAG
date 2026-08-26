@@ -474,6 +474,9 @@
       container.appendChild(label);
 
       subjects.forEach(subj => {
+        SAMPLES[subj.key] = subj.sample_questions?.length
+          ? subj.sample_questions
+          : buildSubjectSuggestions(subj.title, subj.type);
         const btn = document.createElement("button");
         btn.className = "subject-btn";
         btn.id = `btn_${subj.key}`;
@@ -487,6 +490,16 @@
         container.appendChild(btn);
       });
     });
+  }
+
+  function buildSubjectSuggestions(title, type) {
+    const subjectKind = type === "Lab" ? "lab experiments and programs" : "important topics";
+    return [
+      `What is ${title}?`,
+      `Explain the ${subjectKind} in ${title}`,
+      `What are the main concepts of ${title}?`,
+      `Give an exam-oriented overview of ${title}`,
+    ];
   }
 
   function selectSubject(key, icon, title) {

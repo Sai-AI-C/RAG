@@ -27,7 +27,13 @@ from pydantic import BaseModel, Field
 from src.retrieval.retriever import retrieve_context, is_context_relevant
 from src.llm.llm_client import stream_llm_response, ALL_GROQ_MODELS
 from src.vectordb.vector_store import get_subject_counts
-from src.utils.helpers import SUBJECT_METADATA, SIDEBAR_CATEGORIES, get_groq_api_key, normalize_subject_name
+from src.utils.helpers import (
+    SUBJECT_METADATA,
+    SIDEBAR_CATEGORIES,
+    SUBJECT_SAMPLE_QUESTIONS,
+    get_groq_api_key,
+    normalize_subject_name,
+)
 
 
 #  Pydantic Models 
@@ -111,6 +117,7 @@ async def get_subjects():
                 "title": meta.get("title", key),
                 "icon": meta.get("icon", "📚"),
                 "type": meta.get("type", "Notes"),
+                "sample_questions": SUBJECT_SAMPLE_QUESTIONS.get(key, []),
             })
         categories[cat_label] = subjects_in_cat
     return {"categories": categories}
