@@ -59,7 +59,19 @@ def get_available_groq_models(api_key: Optional[str] = None) -> List[str]:
     except Exception:
         pass
 
-    return ALL_GROQ_MODELS
+    return []
+
+
+def _is_model_unavailable_error(error: Exception) -> bool:
+    """Return whether Groq rejected a model because it is missing or inaccessible."""
+    message = str(error).lower()
+    return "404" in message or "model_not_found" in message or "does not exist" in message
+
+
+def _is_rate_limit_error(error: Exception) -> bool:
+    """Return whether Groq asked the client to retry later."""
+    message = str(error).lower()
+    return "429" in message or "rate limit" in message or "rate_limit" in message
 
 
 def get_local_ollama_models() -> List[str]:
@@ -135,6 +147,8 @@ def stream_llm_response(
 
     groq_api_key = get_groq_api_key()
     last_groq_error = ""
+    unavailable_models = []
+    rate_limited_models = []
 
     # Check if explicit local Ollama was chosen without Auto
     is_pure_ollama = ("Ollama" in selected_engine) and ("Auto" not in selected_engine)
@@ -154,12 +168,23 @@ def stream_llm_response(
             yield "⚠️ **Error:** `langchain-groq` package is not installed."
             return
 
-        # Build ordered queue of models to try
+        # Build an ordered queue from models actually enabled for this API key.
         explicit_model = _extract_selected_groq_model(selected_engine)
-        if explicit_model:
-            model_queue = [explicit_model] + [m for m in ALL_GROQ_MODELS if m != explicit_model]
+        discovered_models = get_available_groq_models(groq_api_key)
+        if discovered_models:
+            preferred_models = [m for m in ALL_GROQ_MODELS if m in discovered_models]
+            additional_models = [m for m in discovered_models if m not in preferred_models]
+            model_queue = preferred_models + additional_models
         else:
-            model_queue = list(ALL_GROQ_MODELS)
+            model_queue = [
+                "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b",
+                "llama-3.3-70b-versatile",
+            ]
+
+        if explicit_model and explicit_model in model_queue:
+            model_queue.remove(explicit_model)
+            model_queue.insert(0, explicit_model)
 
         for idx, g_model in enumerate(model_queue):
             try:
@@ -185,6 +210,10 @@ def stream_llm_response(
 
             except Exception as groq_err:
                 last_groq_error = str(groq_err)
+                if _is_model_unavailable_error(groq_err):
+                    unavailable_models.append(g_model)
+                elif _is_rate_limit_error(groq_err):
+                    rate_limited_models.append(g_model)
                 next_model = model_queue[idx + 1] if idx + 1 < len(model_queue) else "Local Ollama"
 
                 # Notify UI about automatic shift to next model
@@ -221,11 +250,19 @@ def stream_llm_response(
         )
         return
 
-    # 4. ALL 9 GROQ MODELS EXHAUSTED AND OLLAMA OFFLINE
-    if last_groq_error:
+    # 4. Groq exhausted and Ollama offline
+    if rate_limited_models and not unavailable_models:
         yield (
-            f"⚠️ **All 9 Groq Models Temporarily Rate-Limited**\n\n`{last_groq_error}`\n\n"
-            "The system cycled through all 9 available models. Please wait 1 minute for your Groq rate limits to refresh."
+            f"⚠️ **Groq Rate Limit Reached**\n\n`{last_groq_error}`\n\n"
+            "All currently available Groq models are rate-limited. Please wait and try again."
         )
+    elif unavailable_models and not rate_limited_models:
+        yield (
+            "⚠️ **No Compatible Groq Model Available**\n\n"
+            "The configured model list contains models that are unavailable for this Groq account. "
+            "Refresh the model list or select a currently available Groq model."
+        )
+    elif last_groq_error:
+        yield f"⚠️ **Groq Generation Failed**\n\n`{last_groq_error}`"
     else:
         yield "⚠️ **No AI Engine Available:** Please check your `GROQ_API_KEY` or start local Ollama."
