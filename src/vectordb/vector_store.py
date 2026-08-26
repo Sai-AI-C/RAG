@@ -272,6 +272,27 @@ class VectorStoreManager:
             print(f"Error querying vector store: {e}")
             return []
 
+    def keyword_search(
+        self,
+        keyword: str,
+        limit: int = 8,
+        where: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        """Find indexed documents containing a keyword without loading an embedding model."""
+        if not self.collection or not keyword.strip():
+            return []
+        try:
+            results = self.collection.get(
+                where=where,
+                where_document={"$contains": keyword.strip()},
+                include=["documents"],
+                limit=limit,
+            )
+            return [doc for doc in results.get("documents", []) if doc]
+        except Exception as e:
+            print(f"Error searching vector store by keyword: {e}")
+            return []
+
 
 def get_vector_store() -> Optional[VectorStoreManager]:
     """Singleton getter for VectorStoreManager with safe lazy initialization."""

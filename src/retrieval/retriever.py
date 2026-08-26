@@ -1,6 +1,5 @@
 import re
 from typing import List, Tuple, Optional, Set
-from src.embeddings.embedder import get_embedding_model
 from src.vectordb.vector_store import get_vector_store
 from src.prompts.prompt_templates import OUT_OF_SCOPE_TEMPLATE
 from src.utils.helpers import (
@@ -214,11 +213,8 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
     """
     subject_filter = normalize_subject_name(subject_filter) or "All Subjects"
     search_query = expand_query(query, active_subject=subject_filter)
-    embedder = get_embedding_model()
+    raw_query = query.strip()
     db_manager = get_vector_store()
-
-    # Generate dense query embedding (1D list of floats)
-    query_embedding = embedder.encode_single(search_query)
 
     # Prepare subject filter where clause
     where_clause = None
@@ -233,19 +229,20 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
         elif len(targets) > 1:
             where_clause = {"subject": {"$in": targets}}
 
-    # 1. Semantic search — fetch k+6 to compensate for garbled chunks that will be filtered
+    # 1. Keyword retrieval avoids downloading an embedding model during a web request.
     sem_docs = []
     if db_manager:
-        sem_docs = db_manager.query_similarity(
-            query_embedding=query_embedding,
-            n_results=k + 6,
-            where=where_clause
+        search_terms = [search_query, raw_query]
+        search_terms.extend(
+            word for word in re.findall(r"\b[a-zA-Z0-9_-]{4,}\b", search_query)
+            if word.lower() not in {"what", "this", "that", "with", "from", "about", "explain"}
         )
+        for term in search_terms:
+            sem_docs.extend(db_manager.keyword_search(term, limit=k + 6, where=where_clause))
 
     # 2. Safe keyword search (ONLY for non-abbreviation queries with length >= 4)
     # Short substrings like "DA" or "CN" match random substrings inside words and OCR noise!
     kw_docs = []
-    raw_query = query.strip()
     if db_manager and len(raw_query) >= 4 and not is_short_query(raw_query):
         keyword_queries = [raw_query]
         subject_keyword_queries = [
@@ -255,11 +252,10 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
 
         for keyword_query in keyword_queries:
             try:
-                kw_docs.extend(db_manager.query_similarity(
-                    query_embedding=query_embedding,
-                    n_results=min(k, 4),
+                kw_docs.extend(db_manager.keyword_search(
+                    keyword_query,
+                    limit=min(k, 4),
                     where=where_clause,
-                    where_document={"$contains": keyword_query}
                 ))
             except Exception:
                 continue
