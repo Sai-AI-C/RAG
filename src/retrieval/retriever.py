@@ -49,6 +49,9 @@ def expand_query(query: str, active_subject: str = "All Subjects") -> str:
     for wrong, right in typos.items():
         cleaned = cleaned.replace(wrong, right)
 
+    if active_subject in {"CN Notes", "CN Lab"} and re.search(r"\b(tcp/?ip|tcp ip)\b", cleaned):
+        return f"{raw} TCP/IP model application transport internet network access layers protocols"
+
     # 2. Check active subject's internal abbreviation dictionary first
     subj_abbrevs = SUBJECT_ABBREV.get(active_subject, {})
     for word in re.findall(r'\b[a-zA-Z0-9*]+\b', cleaned):
@@ -102,6 +105,14 @@ def expand_query(query: str, active_subject: str = "All Subjects") -> str:
                 if trigger == cleaned or trigger in cleaned:
                     return expanded_text
 
+        # Common curriculum concepts need explicit aliases because students often omit
+        # the full phrase used in the notes (for example, "7 layers" instead of OSI).
+        if active_subject in {"CN Notes", "CN Lab"}:
+            if re.search(r"\b(osi|seven layers|7 layers|osi model)\b", cleaned):
+                return (
+                    f"{raw} Open Systems Interconnection OSI model seven layers "
+                    "Application Presentation Session Transport Network Data Link Physical"
+                )
     subject_title = SUBJECT_METADATA.get(active_subject, {}).get("title", active_subject)
     if active_subject != "All Subjects" and re.search(
         r"\b(what is|define|explain|list|experiments|programs|overview)\b", cleaned
@@ -203,7 +214,7 @@ def is_garbled_ocr(text: str) -> bool:
     return False
 
 
-def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 8) -> str:
+def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 12) -> str:
     """
     Robust Hybrid RAG Retrieval:
     1. Expands query within active subject context.
@@ -233,6 +244,14 @@ def retrieve_context(query: str, subject_filter: str = "All Subjects", k: int = 
     sem_docs = []
     if db_manager:
         search_terms = [search_query, raw_query]
+        if "Open Systems Interconnection" in search_query:
+            search_terms[0:0] = [
+                "seven layers",
+                "OSI Model",
+                "Open Systems Interconnection",
+            ]
+        if "TCP/IP model" in search_query:
+            search_terms.insert(0, "TCP/IP model")
         search_terms.extend(
             word for word in re.findall(r"\b[a-zA-Z0-9_-]{4,}\b", search_query)
             if word.lower() not in {"what", "this", "that", "with", "from", "about", "explain"}

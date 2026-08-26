@@ -18,7 +18,7 @@ chunking:
   chunk_overlap: 200
 
 retrieval:
-  top_k: 8
+  top_k: 12
   min_context_length: 60
   keyword_min_length: 4
   relevance_threshold: 0.25
