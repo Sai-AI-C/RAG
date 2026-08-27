@@ -1,21 +1,12 @@
----
-title: OmniDoc AI
-emoji: 📚
-colorFrom: indigo
-colorTo: purple
-sdk: streamlit
-sdk_version: 1.39.0
-app_file: app.py
-pinned: false
-license: mit
----
-
-# OmniDoc-RAG 📚✨
+# OmniDoc-RAG
 
 > **Grounded Academic Assistant for Engineering Students**  
-> Powered by Hybrid Dense Retrieval (ChromaDB + SentenceTransformers) and Dual-Inference Engine (Groq Fast Cloud + Ollama Local Fallback).
+> A FastAPI and JavaScript RAG application powered by ChromaDB, Groq, and optional local Ollama inference.
+
+**Deployment:** Render web service using Uvicorn
 
 🔴 **Live Demo**: [Click here to try the app](https://omnidoc-rag-360.streamlit.app/)
+
 
 ## 🎯 Problem Statement
 - Engineering students face fragmented course materials across 38+ subjects
@@ -36,9 +27,10 @@ c:\OmniDoc-RAG\
 ├── .env                    # Environment variables (API keys, model settings)
 ├── .gitignore              # Git ignore rules
 ├── config.yaml             # Core application & RAG pipeline configuration
-├── Load.py                 # Ingestion pipeline runner
+├── api.py                  # FastAPI production server and SSE chat API
 ├── main.py                 # CLI & Application entry point
-├── app.py                  # Streamlit web application & UI
+├── app.py                  # Legacy Streamlit interface for local use
+├── frontend/index.html     # Production browser interface
 ├── src/                    # Modular RAG Source Package
 │   ├── __init__.py
 │   ├── ingestion/          # Document loading (PDF, DOCX, PPTX with OCR fallback)
@@ -53,7 +45,7 @@ c:\OmniDoc-RAG\
 │   ├── vectordb/           # ChromaDB PersistentClient & Collection management
 │   │   ├── __init__.py
 │   │   └── vector_store.py
-│   ├── retrieval/          # Query expansion, hybrid retrieval & anti-hallucination gate
+│   ├── retrieval/          # Query expansion, keyword retrieval & relevance gate
 │   │   ├── __init__.py
 │   │   └── retriever.py
 │   ├── prompts/            # Grounded exam-ready prompt templates
@@ -81,7 +73,7 @@ c:\OmniDoc-RAG\
 
 1. **Anti-Hallucination Relevance Gate**: Queries asked under a specific subject are validated against course notes. Out-of-scope queries (e.g. asking *Data Analysis* under *Java Programming*) are intercepted programmatically with guidance to the correct subject.
 2. **Context-Aware Abbreviation Resolution**: Short queries like `CN`, `DA`, `JF`, `DFF` are resolved strictly within the active subject's scope (e.g., `CN` in *Software Testing* → *Control Flow Graph*, while `CN` in *Computer Networks* → *Computer Networks*).
-3. **Hybrid Inference Engine**: Blazing fast responses using Groq Cloud (`openai/gpt-oss-120b`), with automatic fallback to local Ollama when rate limits are reached.
+3. **Resilient Inference Engine**: Uses Groq cloud models with account-aware model discovery, unavailable-model detection, rate-limit handling, and optional local Ollama fallback.
 4. **Subject-Scoped Navigation**: Over 38 engineering subjects categorized across *AI & Data Science*, *Networks & Security*, *Core CS & Systems*, and *Management & Electives*.
 
 ## 📊 System Performance
@@ -89,9 +81,9 @@ c:\OmniDoc-RAG\
 | Metric | Value |
 |---|---|
 | Supported Subjects | 38+ engineering courses |
-| Document Processing Speed | [2-3] MB/minute |
-| Retrieval Accuracy | [88%-96%] |
-| Average Response Latency | [0.5-2] seconds (Groq) / [2-5] seconds (Ollama) |
+| Indexed Chunks | 36K+ course-document chunks |
+| Retrieval | Subject-aware ChromaDB keyword search |
+| Response Behavior | Streaming responses via Server-Sent Events |
 | Supported File Formats | PDF, DOCX, PPTX + OCR fallback |
 
 ## 📈 Dataset & Course Coverage
@@ -102,7 +94,7 @@ c:\OmniDoc-RAG\
 | AI & Data Science | 7 subjects (ML, NLP, RL, etc.) |
 | Networks & Security | 6 subjects (CN, CNS, etc.) |
 | Core CS & Systems | 8 subjects (OS, DBMS, COA, etc.) |
-| Management & Electives | [16] subjects |
+| Management & Electives | 14 subjects |
 | Document Types | PDF, DOCX, PPTX with OCR support |
 
 ## 🏗️ RAG Pipeline Components
@@ -113,8 +105,8 @@ c:\OmniDoc-RAG\
 | Chunking | Semantic text splitting | RecursiveCharacterTextSplitter |
 | Embeddings | Dense vector representations | SentenceTransformers (all-MiniLM-L6-v2) |
 | Vector DB | Persistent retrieval | ChromaDB |
-| Retrieval | Hybrid search with query expansion | BM25 + semantic similarity |
-| LLM | Inference engine | Groq (primary) / Ollama (fallback) |
+| Retrieval | Subject-aware keyword search with query expansion | ChromaDB |
+| LLM | Cloud inference with fallback handling | Groq (primary) / Ollama (optional fallback) |
 | Safety Gate | Anti-hallucination validation | Subject-scoped relevance checks |
 
 
@@ -153,15 +145,15 @@ python main.py --mode ingest --subject MSF --rebuild
 python main.py --mode ingest --rebuild
 ```
 
-### 4. Launch Application
-Start the Streamlit interface:
+### 4. Launch the Render-style API locally
+Start the FastAPI server:
 ```bash
-python main.py --mode app
+python api.py
 ```
-Or directly:
-```bash
-streamlit run app.py
-```
+
+Open `http://localhost:10000` in a browser. The API also provides `/api/health`, `/api/subjects`, and `/api/chat`.
+
+The older Streamlit interface can still be started locally with `streamlit run app.py`, but it is not the production deployment described here.
 
 ### 5. Run Test Suite
 ```bash
@@ -184,13 +176,22 @@ python main.py --mode test
 
 ## ⚡ Performance Optimizations
 
-- **Groq Cloud API**: 100+ tokens/sec for instant responses
-- **Ollama Fallback**: Automatic local inference if Groq rate limit reached
-- **ChromaDB**: Sub-millisecond retrieval from persistent embeddings
-- **Query Expansion**: Expands 1 query → 3 variations for better recall
+- **Groq Cloud API**: Primary cloud inference provider
+- **Model fallback**: Discovers models available to the configured Groq key and skips unavailable or rate-limited models
+- **Ollama fallback**: Optional local inference when Ollama is running
+- **ChromaDB**: Persistent indexed course-document storage
+- **Query expansion**: Resolves subject-specific abbreviations and common academic phrases
+- **SSE keepalive**: Keeps Render connections open during retrieval and generation
 
 ## 🌐 Deployment Status
-- Live Streamlit App: [[Click here to try the app](https://omnidoc-rag-360.streamlit.app/)]
-- Supports: [100+] concurrent users
-- Uptime: [99%+]
+The production service is deployed on Render with:
+
+- **Build command:** `pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt`
+- **Start command:** `python api.py`
+- **Required secrets:** `GROQ_API_KEY` and `VECTOR_DB_URL`
+- **Runtime settings:** one Uvicorn worker and CPU thread limits for low-memory instances
+
+`VECTOR_DB_URL` must point to a downloadable ZIP containing the ChromaDB files. The database is ignored by Git because it is too large to store in the repository.
+
+After deployment, verify `/api/health` returns `"status": "ok"`, `"groq_configured": true`, and a non-zero `"total_chunks"` value.
 
